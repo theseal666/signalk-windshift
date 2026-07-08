@@ -110,6 +110,26 @@ tools can draw them without wrap artifacts.
 - **Dynamic Window**: Auto-tune tracking period based on detected cycle.
 - **Auto-Calibrate**: Detect and correct for tack-induced errors by comparing Port vs Starboard means.
 - **Tack Lockout Time**: Seconds to ignore data after a maneuver (default 60s).
+- **TWD Source Path**: Which SignalK path to analyze (default `environment.wind.directionTrue`).
+- **Ignore Maneuvers**: Skip heading/AWA tack detection entirely.
+
+## Testing against a shore station
+
+For soak testing without going sailing, the plugin can analyze the TWD of a
+nearby weather station instead of the masthead — for example a Sjöfartsverket
+ViVa station published by
+[signalk-viva](https://github.com/theseal666/signalk-viva-plugin):
+
+- **TWD Source Path**: `environment.observations.viva.vinga.wind.directionTrue`
+- **Ignore Maneuvers**: on — otherwise the boat swinging at the mooring with
+  wind and current would keep triggering the maneuver lockout, even though the
+  station's TWD is unaffected by what the hull is doing.
+
+Station data arrives at polling rate (typically once a minute), so expect one
+analyzed point every couple of minutes: coarse but plenty for verifying cycle
+detection, prediction and long-run stability over a few days. Note that the
+dashboard's "Raw" chart line always follows `environment.wind.directionTrue`,
+so during station testing only the Average/Min/Max lines will draw.
 
 ## Accessing the Dashboard
 

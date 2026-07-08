@@ -113,6 +113,9 @@ module.exports = function (app) {
     const buffer_timeout_s = options.twd_buffer_time || DEFAULT_AVG_BUFFER;
     const timeseries_timeout_s =
       (options.min_max_calc_time || DEFAULT_MIN_MAX_BUFFER) * 60;
+    const twdSourcePath =
+      options.twd_source_path || "environment.wind.directionTrue";
+    const ignoreManeuvers = options.ignore_maneuvers || false;
 
     app.debug("buffers: ", buffer_timeout_s, timeseries_timeout_s);
     windshiftAnalysis.logger(app.debug);
@@ -131,7 +134,7 @@ module.exports = function (app) {
 
     unsubscribes.push(
       app.streambundle
-        .getSelfBus("environment.wind.directionTrue")
+        .getSelfBus(twdSourcePath)
         .forEach((stream_value) => {
           const value = stream_value.value;
           if (typeof value !== "number" || isNaN(value)) return;
@@ -166,25 +169,30 @@ module.exports = function (app) {
         })
     );
 
-    unsubscribes.push(
-      app.streambundle
-        .getSelfBus("navigation.headingTrue")
-        .forEach((stream_value) => {
-          if (typeof stream_value.value === "number" && !isNaN(stream_value.value)) {
-            windshiftAnalysis.setHeading(stream_value.value);
-          }
-        })
-    );
+    // When analyzing a shore station's TWD (e.g. for testing at the mooring),
+    // the boat swinging with wind and current must not lock out data
+    // collection, so heading/AWA are not subscribed at all
+    if (!ignoreManeuvers) {
+      unsubscribes.push(
+        app.streambundle
+          .getSelfBus("navigation.headingTrue")
+          .forEach((stream_value) => {
+            if (typeof stream_value.value === "number" && !isNaN(stream_value.value)) {
+              windshiftAnalysis.setHeading(stream_value.value);
+            }
+          })
+      );
 
-    unsubscribes.push(
-      app.streambundle
-        .getSelfBus("environment.wind.angleApparent")
-        .forEach((stream_value) => {
-          if (typeof stream_value.value === "number" && !isNaN(stream_value.value)) {
-            windshiftAnalysis.setAWA(stream_value.value);
-          }
-        })
-    );
+      unsubscribes.push(
+        app.streambundle
+          .getSelfBus("environment.wind.angleApparent")
+          .forEach((stream_value) => {
+            if (typeof stream_value.value === "number" && !isNaN(stream_value.value)) {
+              windshiftAnalysis.setAWA(stream_value.value);
+            }
+          })
+      );
+    }
   };
 
   plugin.stop = function () {
@@ -229,6 +237,18 @@ module.exports = function (app) {
         type: "number",
         title: "Tack Lockout Time (Seconds to ignore data after a tack)",
         default: 60,
+      },
+      twd_source_path: {
+        type: "string",
+        title:
+          "TWD source path (change to analyze another source, e.g. a shore station like environment.observations.viva.vinga.wind.directionTrue)",
+        default: "environment.wind.directionTrue",
+      },
+      ignore_maneuvers: {
+        type: "boolean",
+        title:
+          "Ignore maneuvers (skip heading/AWA tack detection — use when analyzing a shore station while the boat swings at the mooring)",
+        default: false,
       },
     },
   };
