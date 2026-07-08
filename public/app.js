@@ -116,6 +116,12 @@ function handleValue(path, value, timestamp) {
         document.querySelector("#current-twd .value").innerText = (value * 180 / Math.PI).toFixed(0) + "°";
     } else if (path === "environment.wind.windshift.avg") {
         latestSmooth = value;
+        // In shore-station mode there is no raw TWD on self, so the averaged
+        // value has to drive the chart updates and the TWD readout instead
+        if (latestRaw === null) {
+            document.querySelector("#current-twd .value").innerText = (value * 180 / Math.PI).toFixed(0) + "°";
+            updateChart(timestamp);
+        }
     } else if (path === "environment.wind.windshift.max") {
         latestMax = value;
     } else if (path === "environment.wind.windshift.min") {
