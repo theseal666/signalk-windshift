@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Windshift Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://unpkg.com/uplot/dist/uPlot.min.css">
+</head>
+<body>
+    <div id="dashboard">
+        <header>
+            <div class="metric" id="current-twd">
+                <label>Current TWD</label>
+                <span class="value">--°</span>
+            </div>
+            <div class="metric" id="delta-twd">
+                <label>Delta</label>
+                <span class="value">--°</span>
+            </div>
+            <div class="metric" id="trend">
+                <label>Trend</label>
+                <span class="value">--</span>
+            </div>
+            <div class="metric" id="cycle-period">
+                <label>Cycle</label>
+                <span class="value">--m</span>
+            </div>
+            <div class="metric" id="next-shift">
+                <label>Next Shift</label>
+                <span class="value">--:--</span>
+            </div>
+            <div class="metric" id="certainty">
+                <label>Certainty</label>
+                <div class="gauge-container">
+                    <div class="gauge-bar" style="width: 0%"></div>
+                </div>
+            </div>
+        </header>
+        <main>
+            <div id="chart-container"></div>
+        </main>
+    </div>
+    <script src="https://unpkg.com/uplot/dist/uPlot.iife.min.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

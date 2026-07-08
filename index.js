@@ -1,5 +1,4 @@
 const windshiftAnalysis = require("./windshiftAnalysis.js");
-const windshift = require("./windshiftAnalysis.js");
 
 module.exports = function (app) {
   var plugin = {};
@@ -7,6 +6,8 @@ module.exports = function (app) {
   plugin.id = "windshift";
   plugin.name = "Windshift";
   plugin.description = "Plugin to analyze the windshift";
+
+  var unsubscribes = [];
 
   const DEFAULT_AVG_BUFFER = 10; //seconds
   let buffer_timeout_s = DEFAULT_AVG_BUFFER;
@@ -43,24 +44,25 @@ module.exports = function (app) {
         windshiftAnalysis.appendWindDirection(
           value,
           stream_value.timestamp,
-          ({ timestamp, maxTWD, minTWD }) => {
-            //values = values.concat(vals);
-            app.debug("meta: " + JSON.stringify(meta));
-
+          (metrics) => {
             let signalk_delta = {
               context: "vessels." + app.selfId,
               updates: [
                 {
-                  timestamp: timestamp,
+                  timestamp: metrics.timestamp,
                   values: [
-                    { path: "environment.wind.windshift.max", value: maxTWD },
-                    { path: "environment.wind.windshift.min", value: minTWD },
+                    { path: "environment.wind.windshift.max", value: metrics.maxTWD },
+                    { path: "environment.wind.windshift.min", value: metrics.minTWD },
+                    { path: "environment.wind.windshift.avg", value: metrics.avgTWD },
+                    { path: "environment.wind.windshift.delta", value: metrics.delta },
+                    { path: "environment.wind.windshift.cyclePeriod", value: metrics.cyclePeriod },
+                    { path: "environment.wind.windshift.timeToNextShift", value: metrics.timeToNextShift },
+                    { path: "environment.wind.windshift.certainty", value: metrics.certainty },
+                    { path: "environment.wind.windshift.trend", value: metrics.trend },
                   ],
-                  meta,
                 },
               ],
             };
-            app.debug("send delta: " + JSON.stringify(signalk_delta));
             app.handleMessage(plugin.id, signalk_delta);
           }
         );
@@ -78,12 +80,66 @@ module.exports = function (app) {
       },
     },
     {
+      path: "environment.wind.windshift.avg",
+      value: {
+        units: "rad",
+        description: "Averaged TWD",
+        displayName: "Windshift average TWD",
+        shortName: "Avg TWD",
+      },
+    },
+    {
       path: "environment.wind.windshift.min",
       value: {
         units: "rad",
         description: "Windshift min angle calculated from the buffering period",
         displayName: "Windshift min angle",
         shortName: "Windshift min angle",
+      },
+    },
+    {
+      path: "environment.wind.windshift.delta",
+      value: {
+        units: "rad",
+        description: "Spread between max and min wind angle",
+        displayName: "Windshift delta",
+        shortName: "Windshift delta",
+      },
+    },
+    {
+      path: "environment.wind.windshift.cyclePeriod",
+      value: {
+        units: "s",
+        description: "Average time between wind shifts",
+        displayName: "Windshift cycle period",
+        shortName: "Cycle period",
+      },
+    },
+    {
+      path: "environment.wind.windshift.timeToNextShift",
+      value: {
+        units: "s",
+        description: "Estimated time to the next wind shift",
+        displayName: "Time to next shift",
+        shortName: "Next shift",
+      },
+    },
+    {
+      path: "environment.wind.windshift.certainty",
+      value: {
+        units: "",
+        description: "Confidence in the detected cycle",
+        displayName: "Windshift certainty",
+        shortName: "Certainty",
+      },
+    },
+    {
+      path: "environment.wind.windshift.trend",
+      value: {
+        units: "",
+        description: "Current wind trend (1: veering, -1: backing, 0: steady)",
+        displayName: "Wind trend",
+        shortName: "Trend",
       },
     },
   ];

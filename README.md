@@ -1,30 +1,57 @@
 # signalk-windshift
 
-SignalK plugin to calculate the min and max TWD for windshifts
+SignalK plugin to analyze wind shifts and detect cyclic oscillations in True Wind Direction (TWD).
 
-Still expermimental and used as a support tool to investigate if it is possible to see (and predict) oscillating windshifts
+## Features
 
-Will create two new Paths:
-environment.wind.windshift.max
-environment.wind.windshift.min
+- **TWD Averaging**: Smooths raw wind data to identify trends.
+- **Min/Max Tracking**: Tracks the spread of wind shifts over a configurable period (e.g., 20 minutes).
+- **Cycle Detection**: Automatically detects peaks and troughs to identify oscillating wind patterns.
+- **Predictive Metrics**: Calculates average cycle period and estimates the time to the next shift.
+- **Certainty Score**: Provides a confidence indicator based on the regularity of the detected cycles.
+- **Web Dashboard**: Built-in real-time visualization with tactical metrics and a "waterfall" time-series chart.
 
-Those can be sent to InfluxDB and be viewed in Grafana like this:
+## Visuals
+
+### Dashboard Overview
+The plugin includes a web dashboard providing a tactical view of the wind.
+- **Top Bar**: Real-time metrics for TWD, Delta (spread), Trend (Veering/Backing), Cycle Period, and Next Shift countdown.
+- **Waterfall Chart**: Visualizes Raw TWD, Smoothed TWD, and the Min/Max bounds.
+
+### Historical Analysis in Grafana
 ![Overview](https://github.com/theseal666/signalk-windshift/blob/main/IMG/Overview.png?raw=true)
+*The green line is raw data, blue/orange lines represent the environment.wind.windshift.max/min spread.*
 
-The green line is the raw data from the windvane and the yellow is just grafana moving average (40)
-The blue and orange lines is environment.wind.windshift.max and environment.wind.windshift.max respectivly that gives a hint on the spread (and if the shift is big enough to tack on)
-
-
-Hopefully there is ways to find and see (and predict) any oscillation behaviours in the wind, like this:
+### Detecting Oscillations
 ![5 min oscillations 20° apart](https://github.com/theseal666/signalk-windshift/blob/main/IMG/what%20we%20want.png?raw=true)
-![20°](https://github.com/theseal666/signalk-windshift/blob/main/IMG/what%20we%20want%202.png?raw=true)
 
+## SignalK Paths
 
-Settings:
-You can play with two parameters in the plugin configuration for different results.
+The plugin emits the following paths:
+
+| Path | Description | Unit |
+| :--- | :--- | :--- |
+| `environment.wind.windshift.avg` | Smoothed True Wind Direction | rad |
+| `environment.wind.windshift.min` | Minimum TWD in the tracking period | rad |
+| `environment.wind.windshift.max` | Maximum TWD in the tracking period | rad |
+| `environment.wind.windshift.delta` | Spread between max and min | rad |
+| `environment.wind.windshift.cyclePeriod` | Average time between shifts | s |
+| `environment.wind.windshift.timeToNextShift` | Estimated time to next predicted shift | s |
+| `environment.wind.windshift.certainty` | Confidence score (0.0 - 1.0) | - |
+| `environment.wind.windshift.trend` | 1 (Veering), -1 (Backing), 0 (Steady) | - |
+
+## Configuration
+
+You can adjust the following parameters in the plugin settings:
+- **TWD Buffer Time**: How long to average TWD to smooth out noise (seconds).
+- **Min/Max Calculation Time**: The window of time to keep data for calculating spread and detecting cycles (minutes).
+
 ![Plugin conf settings](https://github.com/theseal666/signalk-windshift/blob/main/IMG/plugin%20config%20settings.png?raw=true)
 
+## Accessing the Dashboard
 
-## -- under development --
+Once the plugin is installed and started, you can access the dashboard at:
+`http://<your-signalk-ip>:3000/@jwallinder/windshift`
 
-more info will come
+---
+*Still experimental and under development.*

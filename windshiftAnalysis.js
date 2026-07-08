@@ -1,5 +1,13 @@
 var buffer = [];
 var data = [];
+var peaks = [];
+var troughs = [];
+var cyclePeriod = 0;
+var certainty = 0;
+var timeToNextShift = 0;
+var trend = 0;
+var last_avg_twd = null;
+
 const DEFAULT_AVG_BUFFER = 10; //seconds
 let buffer_timeout_s = DEFAULT_AVG_BUFFER;
 
@@ -11,12 +19,68 @@ const debug = (msg) => {
   if (debuglogger) debuglogger(msg);
 };
 
-const maxreducer = (max, currentValue) =>
-  currentValue > max ? currentValue : max;
-const minreducer = (min, currentValue) =>
-  currentValue < min ? currentValue : min;
-const timeMapper = (datapoint) => datapoint[0];
 const twdMapper = (datapoint) => datapoint[1];
+
+function normalize(diff) {
+  if (diff > Math.PI) return diff - 2 * Math.PI;
+  if (diff < -Math.PI) return diff + 2 * Math.PI;
+  return diff;
+}
+
+function calculateCycle() {
+  const intervals = [];
+  for (let i = 1; i < peaks.length; i++) {
+    intervals.push((peaks[i].time - peaks[i - 1].time) / 1000);
+  }
+  for (let i = 1; i < troughs.length; i++) {
+    intervals.push((troughs[i].time - troughs[i - 1].time) / 1000);
+  }
+
+  if (intervals.length < 2) {
+    certainty = 0;
+    return;
+  }
+
+  const avgInterval = intervals.reduce((a, b) => a + b) / intervals.length;
+  const variance = intervals.reduce((a, b) => a + Math.pow(b - avgInterval, 2), 0) / intervals.length;
+  const stdDev = Math.sqrt(variance);
+
+  cyclePeriod = avgInterval;
+  certainty = Math.max(0, 1 - (stdDev / (avgInterval / 2)));
+
+  const lastShiftTime = Math.max(
+    peaks.length > 0 ? peaks[peaks.length - 1].time : 0,
+    troughs.length > 0 ? troughs[troughs.length - 1].time : 0
+  );
+
+  if (lastShiftTime > 0) {
+    const timeSinceLastShift = (Date.now() - lastShiftTime) / 1000;
+    timeToNextShift = Math.max(0, cyclePeriod - timeSinceLastShift);
+  }
+}
+
+function detectShifts(timestamp) {
+  if (data.length < 3) return;
+
+  const p1 = data[data.length - 3][1];
+  const p2 = data[data.length - 2][1];
+  const p3 = data[data.length - 1][1];
+
+  const offset = data[0][1];
+  const n1 = normalize(p1 - offset);
+  const n2 = normalize(p2 - offset);
+  const n3 = normalize(p3 - offset);
+
+  if (n2 > n1 && n2 > n3) {
+    peaks.push({ time: data[data.length - 2][0], value: p2 });
+    if (peaks.length > 5) peaks.shift();
+    calculateCycle();
+  } else if (n2 < n1 && n2 < n3) {
+    troughs.push({ time: data[data.length - 2][0], value: p2 });
+    if (troughs.length > 5) troughs.shift();
+    calculateCycle();
+  }
+}
 
 const windshiftAnalysis = {
   logger: (logger) => (debuglogger = logger),
@@ -25,72 +89,68 @@ const windshiftAnalysis = {
     debug("incoming config: " + JSON.stringify(config));
     buffer_timeout_s = config.buffer_timeout_s || DEFAULT_AVG_BUFFER;
     timeseries_timeout_s =
-      config.timeseries_timeout_s || DEFAULT_MIN_MAX_BUFFER;
+      config.timeseries_timeout_s || DEFAULT_MIN_MAX_BUFFER * 60;
   },
 
   appendWindDirection: (twd, timestamp_in, update) => {
-    timestamp = Date.parse(timestamp_in) || Date.now();
+    const timestamp = Date.parse(timestamp_in) || Date.now();
     buffer.push([timestamp, twd]);
-    //debug("BUFFER: " + buffer);
-    timediff = timestamp - buffer[0][0];
-    debug("timediff: " + timediff / 1000);
-    if (timediff > buffer_timeout_s * 1000) {
-      // https://math.stackexchange.com/a/1920805
-      //u_east = mean(sin(WD * pi/180))
-      //u_north = mean(cos((WD * pi) / 180));
-      //unit_WD = (arctan2(u_east, u_north) * 180) / pi; (-180 < unit_WD < 180)
-      //unit_WD = (360 + unit_WD) % 360; (0 < unit_WD < 360)
+    const timediff = timestamp - buffer[0][0];
 
-      u_east =
+    if (timediff > buffer_timeout_s * 1000) {
+      const u_east =
         buffer
           .map(twdMapper)
           .map((twd) => Math.sin(twd))
           .reduce((acc, u) => acc + u) / buffer.length;
-      u_north =
+      const u_north =
         buffer
           .map(twdMapper)
           .map((twd) => Math.cos(twd))
           .reduce((acc, u) => acc + u) / buffer.length;
-      avg_twd = Math.atan2(u_east, u_north);
-
-      avg_twd = (2 * Math.PI + avg_twd) % (2 * Math.PI);
-      debug(`avg_twd: ${avg_twd}rad => ${(avg_twd * 180) / Math.PI}deg`);
+      const avg_twd = Math.atan2(u_east, u_north);
+      const normalized_avg_twd = (2 * Math.PI + avg_twd) % (2 * Math.PI);
 
       buffer = [];
+      data.push([timestamp, normalized_avg_twd]);
 
-      data.push([timestamp, avg_twd]);
-
-      offset = data[0][1];
-
-      diff_array = data
+      const offset = data[0][1];
+      const diff_array = data
         .map(twdMapper)
-        .map((twd) => {
-          diff = twd - offset;
-          return diff;
-        })
-        .map((diff) => {
-          if (diff > Math.PI) {
-            return diff - 2 * Math.PI;
-          } else if (diff < -Math.PI) {
-            return (diff + 2 * Math.PI) % (2 * Math.PI);
-          }
-          return diff;
-        });
+        .map((twd) => normalize(twd - offset));
 
-      min = offset + Math.min(...diff_array);
-      max = offset + Math.max(...diff_array);
-      debug(
-        `min: ${min}, max: ${max} from offset: ${offset} and diff_arry: ${diff_array}`
-      );
+      const min = offset + Math.min(...diff_array);
+      const max = offset + Math.max(...diff_array);
 
-      debug(data);
+      detectShifts(timestamp);
+
+      if (last_avg_twd !== null) {
+        const diff = normalize(normalized_avg_twd - last_avg_twd);
+        if (Math.abs(diff) > 0.001) {
+          trend = diff > 0 ? 1 : -1;
+        } else {
+          trend = 0;
+        }
+      }
+      last_avg_twd = normalized_avg_twd;
+
       data = data.filter((datapoint) => {
-        let time = datapoint[0];
-        filter = timestamp - time < timeseries_timeout_s * 1000;
-        return filter;
+        return timestamp - datapoint[0] < timeseries_timeout_s * 1000;
       });
 
-      if (update) update({ timestamp: timestamp_in, maxTWD: max, minTWD: min });
+      if (update) {
+        update({
+          timestamp: timestamp_in,
+          maxTWD: max,
+          minTWD: min,
+          avgTWD: normalized_avg_twd,
+          delta: max - min,
+          cyclePeriod,
+          certainty,
+          timeToNextShift,
+          trend
+        });
+      }
     }
   },
 };
