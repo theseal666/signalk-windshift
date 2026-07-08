@@ -7,8 +7,12 @@
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [
-    "signalk-node-server-plugin"
+    "signalk-node-server-plugin",
+    "signalk-webapp"
   ],
+  "signalk": {
+    "appIcon": "./IMG/Overview.png"
+  },
   "author": "Johan Wallinder",
   "license": "ISC",
   "repository": {
