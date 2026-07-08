@@ -10,85 +10,8 @@ module.exports = function (app) {
   var unsubscribes = [];
 
   const DEFAULT_AVG_BUFFER = 10; //seconds
-  let buffer_timeout_s = DEFAULT_AVG_BUFFER;
-
   const DEFAULT_MIN_MAX_BUFFER = 20; //mins
-  let timeseries_timeout_s = DEFAULT_MIN_MAX_BUFFER * 60;
-
-  plugin.start = function (options, restartPlugin) {
-    // Here we put our plugin logic
-    app.debug("Plugin Windshift started");
-    app.debug("options:" + JSON.stringify(options));
-
-    buffer_timeout_s =
-      options.twd_buffer_time || buffer_timeout_s || DEFAULT_AVG_BUFFER;
-    timeseries_timeout_s =
-      options.min_max_calc_time || timeseries_timeout_s || DEFAULT_AVG_BUFFER;
-
-    timeseries_timeout_s *= 60;
-
-    app.debug("buffers: ", buffer_timeout_s, timeseries_timeout_s);
-    windshiftAnalysis.logger(app.debug);
-    windshiftAnalysis.config({
-      buffer_timeout_s,
-      timeseries_timeout_s,
-      dynamic_window: options.dynamic_window || false,
-      auto_calibrate: options.auto_calibrate || false,
-      tack_lockout_s: options.tack_lockout_s || 60,
-    });
-
-    app.streambundle
-      .getSelfBus("environment.wind.directionTrue")
-      .forEach((stream_value) => {
-        app.debug("incoming stream value", stream_value);
-        value = stream_value.value;
-        if (isNaN(value)) return;
-
-        windshiftAnalysis.appendWindDirection(
-          value,
-          stream_value.timestamp,
-          (metrics) => {
-            let signalk_delta = {
-              context: "vessels." + app.selfId,
-              updates: [
-                {
-                  timestamp: metrics.timestamp,
-                  values: [
-                    { path: "environment.wind.windshift.max", value: metrics.maxTWD },
-                    { path: "environment.wind.windshift.min", value: metrics.minTWD },
-                    { path: "environment.wind.windshift.avg", value: metrics.avgTWD },
-                    { path: "environment.wind.windshift.delta", value: metrics.delta },
-                    { path: "environment.wind.windshift.cyclePeriod", value: metrics.cyclePeriod },
-                    { path: "environment.wind.windshift.timeToNextShift", value: metrics.timeToNextShift },
-                    { path: "environment.wind.windshift.certainty", value: metrics.certainty },
-                    { path: "environment.wind.windshift.trend", value: metrics.trend },
-                    { path: "environment.wind.windshift.calibrationOffset", value: metrics.calibrationOffset },
-                    { path: "environment.wind.windshift.isSettled", value: metrics.isSettled ? 1 : 0 },
-                  ],
-                },
-              ],
-            };
-            app.handleMessage(plugin.id, signalk_delta);
-          }
-        );
-      });
-
-    app.streambundle
-      .getSelfBus("navigation.headingTrue")
-      .forEach((stream_value) => {
-        if (!isNaN(stream_value.value)) {
-          windshiftAnalysis.setHeading(stream_value.value);
-        }
-      });
-
-    app.streambundle
-      .getSelfBus("environment.wind.angleApparent")
-      .forEach((stream_value) => {
-        if (!isNaN(stream_value.value)) {
-          windshiftAnalysis.setAWA(stream_value.value);
-        }
-      });
-  };
+  const DEFAULT_SHIFT_THRESHOLD_DEG = 4;
 
   const meta = [
     {
@@ -163,16 +86,115 @@ module.exports = function (app) {
         shortName: "Trend",
       },
     },
+    {
+      path: "environment.wind.windshift.calibrationOffset",
+      value: {
+        units: "rad",
+        description: "Current calculated calibration correction (half the port/starboard difference)",
+        displayName: "Windshift calibration offset",
+        shortName: "Calibration",
+      },
+    },
+    {
+      path: "environment.wind.windshift.isSettled",
+      value: {
+        units: "",
+        description: "1 if boat is settled, 0 during tack lockout",
+        displayName: "Windshift settled",
+        shortName: "Settled",
+      },
+    },
   ];
 
+  plugin.start = function (options, restartPlugin) {
+    app.debug("Plugin Windshift started");
+    app.debug("options:" + JSON.stringify(options));
+
+    const buffer_timeout_s = options.twd_buffer_time || DEFAULT_AVG_BUFFER;
+    const timeseries_timeout_s =
+      (options.min_max_calc_time || DEFAULT_MIN_MAX_BUFFER) * 60;
+
+    app.debug("buffers: ", buffer_timeout_s, timeseries_timeout_s);
+    windshiftAnalysis.logger(app.debug);
+    windshiftAnalysis.reset();
+    windshiftAnalysis.config({
+      buffer_timeout_s,
+      timeseries_timeout_s,
+      dynamic_window: options.dynamic_window || false,
+      auto_calibrate: options.auto_calibrate || false,
+      tack_lockout_s: options.tack_lockout_s || 60,
+      shift_threshold_rad:
+        ((options.shift_threshold_deg || DEFAULT_SHIFT_THRESHOLD_DEG) * Math.PI) / 180,
+    });
+
+    app.handleMessage(plugin.id, { updates: [{ meta }] });
+
+    unsubscribes.push(
+      app.streambundle
+        .getSelfBus("environment.wind.directionTrue")
+        .forEach((stream_value) => {
+          const value = stream_value.value;
+          if (typeof value !== "number" || isNaN(value)) return;
+
+          windshiftAnalysis.appendWindDirection(
+            value,
+            stream_value.timestamp,
+            (metrics) => {
+              let signalk_delta = {
+                context: "vessels." + app.selfId,
+                updates: [
+                  {
+                    timestamp: metrics.timestamp,
+                    values: [
+                      { path: "environment.wind.windshift.max", value: metrics.maxTWD },
+                      { path: "environment.wind.windshift.min", value: metrics.minTWD },
+                      { path: "environment.wind.windshift.avg", value: metrics.avgTWD },
+                      { path: "environment.wind.windshift.delta", value: metrics.delta },
+                      { path: "environment.wind.windshift.cyclePeriod", value: metrics.cyclePeriod },
+                      { path: "environment.wind.windshift.timeToNextShift", value: metrics.timeToNextShift },
+                      { path: "environment.wind.windshift.certainty", value: metrics.certainty },
+                      { path: "environment.wind.windshift.trend", value: metrics.trend },
+                      { path: "environment.wind.windshift.calibrationOffset", value: metrics.calibrationOffset },
+                      { path: "environment.wind.windshift.isSettled", value: metrics.isSettled ? 1 : 0 },
+                    ],
+                  },
+                ],
+              };
+              app.handleMessage(plugin.id, signalk_delta);
+            }
+          );
+        })
+    );
+
+    unsubscribes.push(
+      app.streambundle
+        .getSelfBus("navigation.headingTrue")
+        .forEach((stream_value) => {
+          if (typeof stream_value.value === "number" && !isNaN(stream_value.value)) {
+            windshiftAnalysis.setHeading(stream_value.value);
+          }
+        })
+    );
+
+    unsubscribes.push(
+      app.streambundle
+        .getSelfBus("environment.wind.angleApparent")
+        .forEach((stream_value) => {
+          if (typeof stream_value.value === "number" && !isNaN(stream_value.value)) {
+            windshiftAnalysis.setAWA(stream_value.value);
+          }
+        })
+    );
+  };
+
   plugin.stop = function () {
-    // Here we put logic we need when the plugin stops
+    unsubscribes.forEach((f) => f());
+    unsubscribes = [];
+    windshiftAnalysis.reset();
     app.debug("Plugin Windshift stopped");
   };
 
   plugin.schema = {
-    // The plugin schema
-
     type: "object",
     required: ["twd_buffer_time", "min_max_calc_time"],
     properties: {
@@ -186,6 +208,12 @@ module.exports = function (app) {
         title:
           "How long time to keep TWD to calculate min and max from (minutes)",
         default: 20,
+      },
+      shift_threshold_deg: {
+        type: "number",
+        title:
+          "Shift detection threshold (degrees the wind must swing back before an extreme counts as a shift)",
+        default: 4,
       },
       dynamic_window: {
         type: "boolean",

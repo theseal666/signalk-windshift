@@ -1,4 +1,5 @@
-const SK_WS_URL = `ws://${window.location.hostname}:${window.location.port}/signalk/v1/stream?subscribe=none`;
+const SK_WS_PROTO = window.location.protocol === "https:" ? "wss" : "ws";
+const SK_WS_URL = `${SK_WS_PROTO}://${window.location.hostname}:${window.location.port}/signalk/v1/stream?subscribe=none`;
 
 let uplot;
 let chartData = [
@@ -49,7 +50,10 @@ function initChart() {
             {
                 grid: { show: true, stroke: "#333" },
                 ticks: { stroke: "#333" },
-                values: (self, ticks) => ticks.map(v => (v * 180 / Math.PI).toFixed(0) + "°")
+                values: (self, ticks) => ticks.map(v => {
+                    const deg = ((v * 180 / Math.PI) % 360 + 360) % 360;
+                    return deg.toFixed(0) + "°";
+                })
             }
         ],
         cursor: {
@@ -141,18 +145,29 @@ function handleValue(path, value, timestamp) {
     }
 }
 
+// Keep each series continuous across the 0/360 wrap so a northerly wind
+// doesn't draw full-height vertical spikes
+function unwrapForChart(seriesArr, v) {
+    const prev = seriesArr.length ? seriesArr[seriesArr.length - 1] : null;
+    if (v == null || prev == null) return v;
+    let u = v;
+    while (u - prev > Math.PI) u -= 2 * Math.PI;
+    while (u - prev < -Math.PI) u += 2 * Math.PI;
+    return u;
+}
+
 function updateChart(timestamp) {
-    // We update chart roughly every 2 seconds to keep it smooth but not too heavy
+    // Throttle chart updates to at most one per second
     const lastTime = chartData[0][chartData[0].length - 1];
     if (lastTime && timestamp - lastTime < 1) return;
 
     chartData[0].push(timestamp);
-    chartData[1].push(latestRaw);
-    chartData[2].push(latestSmooth);
-    chartData[3].push(latestMin);
-    chartData[4].push(latestMax);
+    chartData[1].push(unwrapForChart(chartData[1], latestRaw));
+    chartData[2].push(unwrapForChart(chartData[2], latestSmooth));
+    chartData[3].push(unwrapForChart(chartData[3], latestMin));
+    chartData[4].push(unwrapForChart(chartData[4], latestMax));
 
-    // Keep last 1 hour of data
+    // Keep roughly the last 30 minutes of data
     if (chartData[0].length > 1800) {
         chartData.forEach(arr => arr.shift());
     }

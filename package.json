@@ -1,7 +1,7 @@
 {
   "name": "@jwallinder/windshift",
-  "version": "0.0.5",
-  "description": "",
+  "version": "0.0.6",
+  "description": "SignalK plugin to analyze wind shifts and detect cyclic oscillations in True Wind Direction (TWD)",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
