@@ -10,6 +10,10 @@ let chartData = [
     []  // max
 ];
 
+// Chart data is stored unwrapped (may drift outside 0-360), so fold the
+// cursor readout back into compass degrees
+const degreeValue = (u, v) => v == null ? "--" : (((v * 180 / Math.PI) % 360 + 360) % 360).toFixed(1) + "°";
+
 function initChart() {
     const container = document.getElementById('chart-container');
     const opts = {
@@ -21,28 +25,35 @@ function initChart() {
             y: { range: (self, min, max) => [min - 0.1, max + 0.1] }
         },
         series: [
-            {},
+            {
+                label: "Time",
+                value: (u, v) => v == null ? "--" : ((Date.now() / 1000 - v) / 60).toFixed(1) + " min ago",
+            },
             {
                 label: "Raw",
                 stroke: "rgba(100, 100, 100, 0.5)",
                 width: 1,
+                value: degreeValue,
             },
             {
                 label: "Average",
                 stroke: "#4caf50",
                 width: 3,
+                value: degreeValue,
             },
             {
                 label: "Min",
                 stroke: "#ff9800",
                 dash: [5, 5],
                 width: 2,
+                value: degreeValue,
             },
             {
                 label: "Max",
                 stroke: "#2196f3",
                 dash: [5, 5],
                 width: 2,
+                value: degreeValue,
             }
         ],
         axes: [
