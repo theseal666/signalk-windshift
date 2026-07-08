@@ -32,6 +32,7 @@ module.exports = function (app) {
     windshiftAnalysis.config({
       buffer_timeout_s,
       timeseries_timeout_s,
+      dynamic_window: options.dynamic_window || false,
     });
 
     app.streambundle
@@ -165,6 +166,11 @@ module.exports = function (app) {
         title:
           "How long time to keep TWD to calculate min and max from (minutes)",
         default: 20,
+      },
+      dynamic_window: {
+        type: "boolean",
+        title: "Dynamic Window (Auto-tune tracking period based on detected cycle)",
+        default: false,
       },
     },
   };

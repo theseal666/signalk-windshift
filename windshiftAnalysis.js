@@ -7,6 +7,7 @@ var certainty = 0;
 var timeToNextShift = 0;
 var trend = 0;
 var last_avg_twd = null;
+var dynamic_window = false;
 
 const DEFAULT_AVG_BUFFER = 10; //seconds
 let buffer_timeout_s = DEFAULT_AVG_BUFFER;
@@ -47,6 +48,13 @@ function calculateCycle() {
 
   cyclePeriod = avgInterval;
   certainty = Math.max(0, 1 - (stdDev / (avgInterval / 2)));
+
+  // DYNAMIC WINDOW: If we have a stable cycle, align the tracking window to it
+  if (dynamic_window && certainty > 0.7) {
+    // Set tracking window to 1.5x the cycle period to ensure we see the full oscillation
+    timeseries_timeout_s = avgInterval * 1.5;
+    debug(`Dynamic window updated to ${timeseries_timeout_s / 60}m based on stable cycle`);
+  }
 
   const lastShiftTime = Math.max(
     peaks.length > 0 ? peaks[peaks.length - 1].time : 0,
@@ -90,6 +98,7 @@ const windshiftAnalysis = {
     buffer_timeout_s = config.buffer_timeout_s || DEFAULT_AVG_BUFFER;
     timeseries_timeout_s =
       config.timeseries_timeout_s || DEFAULT_MIN_MAX_BUFFER * 60;
+    dynamic_window = config.dynamic_window || false;
   },
 
   appendWindDirection: (twd, timestamp_in, update) => {
