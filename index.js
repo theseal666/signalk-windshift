@@ -33,6 +33,8 @@ module.exports = function (app) {
       buffer_timeout_s,
       timeseries_timeout_s,
       dynamic_window: options.dynamic_window || false,
+      auto_calibrate: options.auto_calibrate || false,
+      tack_lockout_s: options.tack_lockout_s || 60,
     });
 
     app.streambundle
@@ -60,6 +62,8 @@ module.exports = function (app) {
                     { path: "environment.wind.windshift.timeToNextShift", value: metrics.timeToNextShift },
                     { path: "environment.wind.windshift.certainty", value: metrics.certainty },
                     { path: "environment.wind.windshift.trend", value: metrics.trend },
+                    { path: "environment.wind.windshift.calibrationOffset", value: metrics.calibrationOffset },
+                    { path: "environment.wind.windshift.isSettled", value: metrics.isSettled ? 1 : 0 },
                   ],
                 },
               ],
@@ -67,6 +71,22 @@ module.exports = function (app) {
             app.handleMessage(plugin.id, signalk_delta);
           }
         );
+      });
+
+    app.streambundle
+      .getSelfBus("navigation.headingTrue")
+      .forEach((stream_value) => {
+        if (!isNaN(stream_value.value)) {
+          windshiftAnalysis.setHeading(stream_value.value);
+        }
+      });
+
+    app.streambundle
+      .getSelfBus("environment.wind.angleApparent")
+      .forEach((stream_value) => {
+        if (!isNaN(stream_value.value)) {
+          windshiftAnalysis.setAWA(stream_value.value);
+        }
       });
   };
 
@@ -171,6 +191,16 @@ module.exports = function (app) {
         type: "boolean",
         title: "Dynamic Window (Auto-tune tracking period based on detected cycle)",
         default: false,
+      },
+      auto_calibrate: {
+        type: "boolean",
+        title: "Auto-Calibrate (Detect and correct for tack-induced errors)",
+        default: false,
+      },
+      tack_lockout_s: {
+        type: "number",
+        title: "Tack Lockout Time (Seconds to ignore data after a tack)",
+        default: 60,
       },
     },
   };
