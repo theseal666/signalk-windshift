@@ -13,6 +13,7 @@ SignalK plugin to analyze wind shifts and detect cyclic oscillations in True Win
 - **Tack-Aware Filtering**: Detects tacks/gybes and ignores wind data during maneuvers to prevent "chasing your own tacks" due to sensor noise or boat deceleration.
 - **Auto-Calibration**: Compares the mean TWD between Port and Starboard tacks to automatically identify and correct for sensor misalignment or boat-induced errors.
 - **Web Dashboard**: Built-in real-time visualization with tactical metrics and a "waterfall" time-series chart.
+- **Multi-Station Tracking**: Optionally analyzes the N nearest ViVa shore stations in parallel with the boat, with a dashboard dropdown to switch between sources.
 
 ## How it works
 
@@ -112,6 +113,29 @@ tools can draw them without wrap artifacts.
 - **Tack Lockout Time**: Seconds to ignore data after a maneuver (default 60s).
 - **TWD Source Path**: Which SignalK path to analyze (default `environment.wind.directionTrue`).
 - **Ignore Maneuvers**: Skip heading/AWA tack detection entirely.
+- **Track ViVa Stations**: Number of nearest shore stations to analyze in parallel (0 = off).
+
+## Multi-station tracking
+
+With [signalk-viva](https://github.com/theseal666/signalk-viva-plugin) installed
+and **Track ViVa Stations** set to N, the plugin runs an independent analyzer
+for each of the N nearest stations, in parallel with the boat's own analysis.
+Stations are discovered automatically from whatever viva publishes — no path
+configuration — and ranked by the `distance` viva reports each poll, so the
+active set follows the boat if it moves. Station results are published under
+`environment.observations.viva.<station>.windshift.*`; the boat stays on
+`environment.wind.windshift.*` as before.
+
+The dashboard gets a **Source** dropdown (boat + active stations with their
+distance). All sources are analyzed continuously in the background — switching
+only changes what is displayed, and each source's chart is seeded from its own
+server-side history. For pre-race preparation: start the plugin a day early,
+and by start time each station around the course shows its own spread, cycle
+period and trend.
+
+Plugin HTTP endpoints (require a logged-in session):
+- `/plugins/windshift/sources` — available sources for the dropdown
+- `/plugins/windshift/history?source=<id>` — metrics history per source
 
 ## Testing against a shore station
 

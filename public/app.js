@@ -10,6 +10,16 @@ let chartData = [
     []  // max
 ];
 
+// Which source the dashboard is looking at: "boat" or a ViVa station slug.
+// All sources are analyzed server-side the whole time; this only selects
+// which one is displayed.
+let currentSource = "boat";
+
+const windshiftPrefix = (src) =>
+    src === "boat" ? "environment.wind.windshift." : `environment.observations.viva.${src}.windshift.`;
+const rawPath = (src) =>
+    src === "boat" ? "environment.wind.directionTrue" : `environment.observations.viva.${src}.wind.directionTrue`;
+
 // Chart data is stored unwrapped (may drift outside 0-360), so fold the
 // cursor readout back into compass degrees
 const degreeValue = (u, v) => v == null ? "--" : (((v * 180 / Math.PI) % 360 + 360) % 360).toFixed(1) + "°";
@@ -91,7 +101,8 @@ function connectSK() {
             context: "vessels.self",
             subscribe: [
                 { path: "environment.wind.directionTrue" },
-                { path: "environment.wind.windshift.*" }
+                { path: "environment.wind.windshift.*" },
+                { path: "environment.observations.viva.*" }
             ]
         };
         ws.send(JSON.stringify(subscription));
@@ -121,25 +132,33 @@ let latestMin = null;
 let latestMax = null;
 
 function handleValue(path, value, timestamp) {
-    if (path === "environment.wind.directionTrue") {
+    if (path === rawPath(currentSource)) {
+        if (typeof value !== "number") return;
         latestRaw = value;
         updateChart(timestamp);
         document.querySelector("#current-twd .value").innerText = (value * 180 / Math.PI).toFixed(0) + "°";
-    } else if (path === "environment.wind.windshift.avg") {
+        return;
+    }
+
+    const prefix = windshiftPrefix(currentSource);
+    if (!path.startsWith(prefix)) return;
+    const metric = path.slice(prefix.length);
+
+    if (metric === "avg") {
         latestSmooth = value;
-        // In shore-station mode there is no raw TWD on self, so the averaged
-        // value has to drive the chart updates and the TWD readout instead
+        // If the displayed source has no raw TWD stream, the averaged value
+        // has to drive the chart updates and the TWD readout instead
         if (latestRaw === null) {
             document.querySelector("#current-twd .value").innerText = (value * 180 / Math.PI).toFixed(0) + "°";
             updateChart(timestamp);
         }
-    } else if (path === "environment.wind.windshift.max") {
+    } else if (metric === "max") {
         latestMax = value;
-    } else if (path === "environment.wind.windshift.min") {
+    } else if (metric === "min") {
         latestMin = value;
-    } else if (path === "environment.wind.windshift.delta") {
+    } else if (metric === "delta") {
         document.querySelector("#delta-twd .value").innerText = (value * 180 / Math.PI).toFixed(1) + "°";
-    } else if (path === "environment.wind.windshift.trend") {
+    } else if (metric === "trend") {
         const trendEl = document.querySelector("#trend .value");
         if (value === 1) {
             trendEl.innerText = "Veering ↗";
@@ -151,11 +170,11 @@ function handleValue(path, value, timestamp) {
             trendEl.innerText = "Steady";
             trendEl.style.color = "#fff";
         }
-    } else if (path === "environment.wind.windshift.cyclePeriod") {
+    } else if (metric === "cyclePeriod") {
         document.querySelector("#cycle-period .value").innerText = (value / 60).toFixed(1) + "m";
-    } else if (path === "environment.wind.windshift.certainty") {
+    } else if (metric === "certainty") {
         document.querySelector(".gauge-bar").style.width = (value * 100) + "%";
-    } else if (path === "environment.wind.windshift.timeToNextShift") {
+    } else if (metric === "timeToNextShift") {
         const mins = Math.floor(value / 60);
         const secs = Math.floor(value % 60);
         document.querySelector("#next-shift .value").innerText = `${mins}:${secs.toString().padStart(2, '0')}`;
@@ -193,9 +212,9 @@ function updateChart(timestamp) {
 }
 
 // Seed the chart from the plugin's server-side history so a page reload
-// doesn't start from an empty chart
-function loadHistory() {
-    return fetch("/plugins/windshift/history")
+// or a source switch doesn't start from an empty chart
+function loadHistory(src) {
+    return fetch(`/plugins/windshift/history?source=${encodeURIComponent(src)}`)
         .then(r => (r.ok ? r.json() : []))
         .catch(() => [])
         .then(hist => {
@@ -211,5 +230,47 @@ function loadHistory() {
         });
 }
 
+function loadSources() {
+    return fetch("/plugins/windshift/sources")
+        .then(r => (r.ok ? r.json() : [{ id: "boat", label: "Boat", distance: null }]))
+        .catch(() => [{ id: "boat", label: "Boat", distance: null }])
+        .then(sources => {
+            const sel = document.getElementById("source-select");
+            sel.innerHTML = "";
+            sources.forEach(s => {
+                const opt = document.createElement("option");
+                opt.value = s.id;
+                opt.text = s.distance == null ? s.label : `${s.label} (${(s.distance / 1852).toFixed(1)} nm)`;
+                sel.appendChild(opt);
+            });
+            if ([...sel.options].some(o => o.value === currentSource)) {
+                sel.value = currentSource;
+            }
+        });
+}
+
+function resetView() {
+    chartData = [[], [], [], [], []];
+    latestRaw = latestSmooth = latestMin = latestMax = null;
+    if (uplot) uplot.setData(chartData);
+    document.querySelectorAll("#dashboard header .metric .value").forEach(el => {
+        el.innerText = "--";
+        el.style.color = "#fff";
+    });
+    document.querySelector(".gauge-bar").style.width = "0%";
+}
+
+function switchSource(id) {
+    currentSource = id;
+    resetView();
+    loadHistory(id);
+}
+
+document.getElementById("source-select").addEventListener("change", (e) => switchSource(e.target.value));
+
 initChart();
-loadHistory().then(connectSK);
+loadSources()
+    .then(() => loadHistory(currentSource))
+    .then(connectSK);
+// Stations can appear or drop off as viva discovers them / the boat moves
+setInterval(loadSources, 5 * 60 * 1000);
