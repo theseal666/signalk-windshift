@@ -112,8 +112,10 @@ next-shift countdown, certainty gauge) over a "waterfall" chart of raw TWD,
 smoothed TWD and the min/max envelope. A **Source** dropdown switches between
 the boat and the tracked stations — every source is analyzed continuously in
 the background, so switching is instant: the chart seeds from server-side
-history and the metrics bar fills from the latest snapshot. Cursor readouts
-are in compass degrees and "minutes ago".
+history and the metrics bar fills from the latest snapshot. Station views
+overlay the boat's smoothed TWD as a purple reference line, so a station and
+the boat can be compared directly on one chart. Cursor readouts are in
+compass degrees and "minutes ago".
 
 ## Current state (July 2026)
 

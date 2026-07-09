@@ -7,7 +7,8 @@ let chartData = [
     [], // raw
     [], // smooth
     [], // min
-    []  // max
+    [], // max
+    []  // boat average (reference line on station views)
 ];
 
 // Which source the dashboard is looking at: "boat" or a ViVa station slug.
@@ -50,6 +51,7 @@ function initChart() {
                 stroke: "#4caf50",
                 width: 3,
                 value: degreeValue,
+                spanGaps: true,
             },
             {
                 label: "Min",
@@ -57,6 +59,7 @@ function initChart() {
                 dash: [5, 5],
                 width: 2,
                 value: degreeValue,
+                spanGaps: true,
             },
             {
                 label: "Max",
@@ -64,6 +67,15 @@ function initChart() {
                 dash: [5, 5],
                 width: 2,
                 value: degreeValue,
+                spanGaps: true,
+            },
+            {
+                label: "Boat avg",
+                stroke: "#ba68c8",
+                width: 2,
+                value: degreeValue,
+                spanGaps: true,
+                show: false, // only shown on station views
             }
         ],
         axes: [
@@ -130,8 +142,15 @@ let latestRaw = null;
 let latestSmooth = null;
 let latestMin = null;
 let latestMax = null;
+let latestBoatAvg = null;
 
 function handleValue(path, value, timestamp) {
+    // The boat's smoothed TWD is tracked regardless of the displayed source,
+    // so station views can overlay it as a reference line
+    if (path === "environment.wind.windshift.avg" && typeof value === "number") {
+        latestBoatAvg = value;
+    }
+
     if (path === rawPath(currentSource)) {
         if (typeof value !== "number") return;
         latestRaw = value;
@@ -220,10 +239,18 @@ function loadLatest(src) {
 }
 
 // Keep each series continuous across the 0/360 wrap so a northerly wind
-// doesn't draw full-height vertical spikes
+// doesn't draw full-height vertical spikes. The previous point is the last
+// non-null value, since merged series may contain gaps.
 function unwrapForChart(seriesArr, v) {
-    const prev = seriesArr.length ? seriesArr[seriesArr.length - 1] : null;
-    if (v == null || prev == null) return v;
+    if (v == null) return v;
+    let prev = null;
+    for (let i = seriesArr.length - 1; i >= 0; i--) {
+        if (seriesArr[i] != null) {
+            prev = seriesArr[i];
+            break;
+        }
+    }
+    if (prev == null) return v;
     let u = v;
     while (u - prev > Math.PI) u -= 2 * Math.PI;
     while (u - prev < -Math.PI) u += 2 * Math.PI;
@@ -240,6 +267,7 @@ function updateChart(timestamp) {
     chartData[2].push(unwrapForChart(chartData[2], latestSmooth));
     chartData[3].push(unwrapForChart(chartData[3], latestMin));
     chartData[4].push(unwrapForChart(chartData[4], latestMax));
+    chartData[5].push(currentSource === "boat" ? null : unwrapForChart(chartData[5], latestBoatAvg));
 
     // Keep roughly the last 30 minutes of data
     if (chartData[0].length > 1800) {
@@ -249,23 +277,41 @@ function updateChart(timestamp) {
     if (uplot) uplot.setData(chartData);
 }
 
-// Seed the chart from the plugin's server-side history so a page reload
-// or a source switch doesn't start from an empty chart
-function loadHistory(src) {
+function fetchHistory(src) {
     return fetch(`/plugins/windshift/history?source=${encodeURIComponent(src)}`)
         .then(r => (r.ok ? r.json() : []))
-        .catch(() => [])
-        .then(hist => {
-            // The chart caps itself at 1800 points, so seed at most that many
-            hist.slice(-1700).forEach(p => {
-                chartData[0].push(p.t / 1000);
-                chartData[1].push(null); // raw samples are not kept server-side
-                chartData[2].push(unwrapForChart(chartData[2], p.avg));
-                chartData[3].push(unwrapForChart(chartData[3], p.min));
-                chartData[4].push(unwrapForChart(chartData[4], p.max));
-            });
-            if (uplot) uplot.setData(chartData);
+        .catch(() => []);
+}
+
+// Seed the chart from the plugin's server-side history so a page reload
+// or a source switch doesn't start from an empty chart. On station views the
+// boat's history is merged in as a reference series; the two histories have
+// independent timestamps, so they interleave on a common time axis with
+// gaps (spanGaps draws through them).
+function loadHistory(src) {
+    const fetches = [fetchHistory(src)];
+    if (src !== "boat") fetches.push(fetchHistory("boat"));
+    return Promise.all(fetches).then(([hist, boatHist]) => {
+        const byTime = new Map();
+        hist.forEach(p => byTime.set(p.t, { avg: p.avg, min: p.min, max: p.max }));
+        (boatHist || []).forEach(p => {
+            const e = byTime.get(p.t) || {};
+            e.boat = p.avg;
+            byTime.set(p.t, e);
         });
+        // The chart caps itself at 1800 points, so seed at most that many
+        const times = [...byTime.keys()].sort((a, b) => a - b).slice(-1700);
+        times.forEach(t => {
+            const e = byTime.get(t);
+            chartData[0].push(t / 1000);
+            chartData[1].push(null); // raw samples are not kept server-side
+            chartData[2].push(unwrapForChart(chartData[2], e.avg != null ? e.avg : null));
+            chartData[3].push(unwrapForChart(chartData[3], e.min != null ? e.min : null));
+            chartData[4].push(unwrapForChart(chartData[4], e.max != null ? e.max : null));
+            chartData[5].push(unwrapForChart(chartData[5], e.boat != null ? e.boat : null));
+        });
+        if (uplot) uplot.setData(chartData);
+    });
 }
 
 function loadSources() {
@@ -290,7 +336,7 @@ function loadSources() {
 }
 
 function resetView() {
-    chartData = [[], [], [], [], []];
+    chartData = [[], [], [], [], [], []];
     latestRaw = latestSmooth = latestMin = latestMax = null;
     if (uplot) uplot.setData(chartData);
     document.querySelectorAll("#dashboard header .metric .value").forEach(el => {
@@ -303,6 +349,8 @@ function resetView() {
 function switchSource(id) {
     currentSource = id;
     resetView();
+    // The boat reference line only makes sense next to something else
+    if (uplot) uplot.setSeries(5, { show: id !== "boat" });
     loadHistory(id);
     loadLatest(id);
 }
