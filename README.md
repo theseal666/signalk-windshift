@@ -1,90 +1,170 @@
 # signalk-windshift
 
-SignalK plugin to analyze wind shifts and detect cyclic oscillations in True Wind Direction (TWD).
+A SignalK plugin that analyzes True Wind Direction (TWD) to detect, quantify
+and **predict wind shifts** — for tactical sailing, race preparation and
+plain curiosity about what the wind is doing.
 
-## Features
+Originally created by [Johan Wallinder](https://github.com/jwallinder/signalk-windshift),
+extended in this fork with cycle prediction, tack awareness, multi-station
+tracking and a live dashboard.
 
-- **TWD Averaging**: Smooths raw wind data to identify trends.
-- **Min/Max Tracking**: Tracks the spread of wind shifts over a configurable period.
-- **Cycle Detection**: Detects peaks and troughs with a noise threshold to identify oscillating wind patterns.
-- **Predictive Metrics**: Calculates average cycle period and estimates the time to the next shift.
-- **Certainty Score**: Provides a confidence indicator based on the regularity of the detected cycles.
-- **Dynamic Window (Auto-Tune)**: Automatically adjusts the tracking window to match detected wind cycles for more accurate spread calculations.
-- **Tack-Aware Filtering**: Detects tacks/gybes and ignores wind data during maneuvers to prevent "chasing your own tacks" due to sensor noise or boat deceleration.
-- **Auto-Calibration**: Compares the mean TWD between Port and Starboard tacks to automatically identify and correct for sensor misalignment or boat-induced errors.
-- **Web Dashboard**: Built-in real-time visualization with tactical metrics and a "waterfall" time-series chart.
-- **Multi-Station Tracking**: Optionally analyzes the N nearest ViVa shore stations in parallel with the boat, with a dashboard dropdown to switch between sources.
+---
 
-## How it works
+## What we are trying to achieve
+
+Wind is rarely steady. On most race days the True Wind Direction oscillates
+around a mean — backing and veering in a semi-regular rhythm driven by
+thermals, gradient interplay and terrain. A boat that tacks in phase with
+those oscillations gains hugely on one that ignores them. The tactical
+questions are always the same:
+
+1. **How big are the shifts?** (the spread between min and max TWD)
+2. **How often do they come?** (the oscillation period)
+3. **Which phase are we in right now?** (lifted or headed, veering or backing)
+4. **When is the next shift due?** (the countdown that decides "tack now or hold")
+
+Raw masthead data doesn't answer any of this directly — it looks like the
+green noise below. The underlying rhythm (hand-marked in red) is what we
+want the plugin to extract automatically:
+
+![What we want](https://github.com/theseal666/signalk-windshift/blob/main/IMG/what%20we%20want.png?raw=true)
+*Raw TWD (green) with the underlying oscillation traced by hand — the plugin's
+job is to find this rhythm without the hand.*
+
+![What we want 2](https://github.com/theseal666/signalk-windshift/blob/main/IMG/what%20we%20want%202.png?raw=true)
+*The same idea with the oscillation envelope marked: spread, period and phase
+are the tactical currency.*
+
+The second ambition is **pre-race preparation**: hours (or a day) before the
+start, monitor the wind behavior at several weather stations around the
+racecourse — is the oscillation local or course-wide, is there a gradient
+between the inshore and offshore stations, what period should we expect where
+we'll be sailing? With the multi-station feature and data from
+[Sjöfartsverket ViVa](https://github.com/theseal666/signalk-viva-plugin),
+that picture builds itself while the boat is still at the dock.
+
+## How we do it
 
 ### Smoothing
 
-Raw TWD samples are collected into a short buffer (default 10 s) and reduced to
-one averaged data point. The average is a proper *circular* mean (averaging the
-sin/cos components), so a wind oscillating around north does not produce
-nonsense values. These averaged points form the time series that everything
-else is computed from.
+Raw TWD samples are collected into a short buffer (default 10 s) and reduced
+to one averaged data point using a proper *circular* mean (sin/cos
+components), so a wind oscillating around north doesn't produce nonsense.
+These averaged points form the time series everything else is computed from.
 
 ### Shift detection (zigzag with threshold)
 
-The averaged TWD is first *unwrapped* into a continuous series (no 0°/360°
-jumps) and then run through a zigzag detector: while the wind is veering, the
-running maximum is tracked as a candidate peak; only when the wind has come
-**back** by at least the shift threshold (default 4°) is that candidate
-confirmed as a real peak, and the detector flips to tracking a trough. Wiggles
-smaller than the threshold never register, which keeps sensor noise from
-flooding the cycle statistics. Confirmed peaks/troughs are timestamped at the
-actual extreme, not at the moment of confirmation.
+The averaged TWD is *unwrapped* into a continuous series (no 0°/360° jumps)
+and run through a zigzag detector: while the wind veers, the running maximum
+is tracked as a candidate peak; only when the wind has come **back** by at
+least the shift threshold (default 4°) is that candidate confirmed as a real
+peak, and the detector flips to hunting a trough. Wiggles smaller than the
+threshold never register — sensor noise cannot flood the statistics.
+Confirmed extremes are timestamped at the actual turning point, not at the
+moment of confirmation.
 
 ### Cycle period, certainty and prediction
 
-The cycle period is the average interval between consecutive peaks and between
-consecutive troughs (a full oscillation). Certainty is derived from how regular
-those intervals are: tight spacing gives a score near 1.0, chaotic spacing
-falls toward 0. Because peaks and troughs alternate, the next extreme is
-expected about **half a cycle** after the last one — `timeToNextShift` counts
-down from there and is recomputed on every emitted update. Old extremes expire
-(3× the tracking window) so a shift from an hour ago cannot skew the estimate.
+The cycle period is the average interval between consecutive peaks and
+between consecutive troughs (one full oscillation). **Certainty** measures
+how regular those intervals are: metronomic shifts score near 1.0, chaos
+scores 0 — and a low score is the honest answer in unstable conditions, not
+a malfunction. Because peaks and troughs alternate, the next extreme is
+expected about **half a cycle** after the last one; `timeToNextShift` counts
+down live from there. Old extremes expire so a shift from hours ago cannot
+skew the estimate.
 
-### Tack awareness
+### Tack awareness (boat source only)
 
-Two triggers mark the boat as "not settled" and pause data collection for the
-lockout period: a heading change of more than ~11°, and the apparent wind angle
-crossing from one side to the other. AWA samples very close to head-to-wind
-(±3°) or dead downwind (beyond ±165°) are ignored for tack detection, since the
-sign of AWA is pure noise there. (If you are sailing gennaker angles you should
-never be past ~155° anyway — and if you are, you have other issues.)
+Two triggers pause data collection during maneuvers (the "don't chase your
+own tacks" filter): a heading change of more than ~11°, and the apparent
+wind angle crossing sides. AWA samples within ~3° of head-to-wind or beyond
+~165° are ignored, since the AWA sign is pure noise there. Shore stations
+skip all of this — a lighthouse doesn't tack.
 
 ### Auto-calibration
 
-If the wind sensor is misaligned, the measured TWD on port and starboard tack
-will differ systematically. The plugin keeps the recent averaged TWD readings
-per tack (raw, uncorrected values, so the correction never feeds back into its
-own estimate), takes the circular mean of each side, and computes half the
-difference. The correction is then applied **per tack** — starboard readings
-shifted one way, port readings the other — pulling both toward the common mean.
-A single global offset could never fix a port/starboard asymmetry. The
-correction is applied to the whole tracking window on the fly, so min/max/avg
-stay consistent when the offset estimate drifts.
+A misaligned wind sensor reads systematically different TWD on port vs
+starboard tack. The plugin keeps recent raw readings per tack, takes the
+circular mean of each side, and applies **half the difference per tack** —
+pulling both toward the common mean (a single global offset can never fix a
+side-to-side asymmetry). The means are computed from uncorrected data so the
+correction never feeds back into its own estimate. Caveat: if you tack *on*
+the shifts, genuine oscillation shows up as a port/starboard difference and
+gets partially calibrated away — leave this off unless you suspect sensor
+misalignment.
 
-Note: if you tack *on* the shifts, part of the genuine oscillation shows up as
-a port/starboard difference and will be partially calibrated away. Leave
-Auto-Calibrate off unless you suspect sensor misalignment.
+### Multi-station tracking
 
-## Visuals
+With [signalk-viva](https://github.com/theseal666/signalk-viva-plugin)
+installed and **Track ViVa stations** set to N, the plugin runs an
+independent analyzer for each of the N nearest stations, in parallel with
+the boat. Stations self-discover from whatever viva publishes (no path
+configuration) and are re-ranked by distance every poll, so the active set
+follows the boat if it moves mid-race. Station results publish under
+`environment.observations.viva.<station>.windshift.*`; the boat stays on
+`environment.wind.windshift.*`.
 
-### Dashboard Overview
-The plugin includes a web dashboard providing a tactical view of the wind.
-- **Top Bar**: Real-time metrics for TWD, Delta (spread), Trend (Veering/Backing), Cycle Period, and Next Shift countdown.
-- **Waterfall Chart**: Visualizes Raw TWD, Smoothed TWD, and the Min/Max bounds.
+### Dashboard
 
-### Historical Analysis in Grafana
+The built-in webapp shows a tactical metrics bar (TWD, delta, trend, cycle,
+next-shift countdown, certainty gauge) over a "waterfall" chart of raw TWD,
+smoothed TWD and the min/max envelope. A **Source** dropdown switches between
+the boat and the tracked stations — every source is analyzed continuously in
+the background, so switching is instant: the chart seeds from server-side
+history and the metrics bar fills from the latest snapshot. Cursor readouts
+are in compass degrees and "minutes ago".
+
+## Current state (July 2026)
+
+**Branches:**
+- `main` — v0.0.6: single-source analysis, stable.
+- `feature/multi-station` — v0.1.1: everything described above; running on
+  the test boat now. Will be merged to main after the soak test.
+
+**Live soak test:** the plugin currently runs 24/7 on a Raspberry Pi,
+analyzing the Vinga lighthouse TWD as its "boat" source (the boat is at the
+mooring, so shore data stands in for the masthead) plus the five nearest
+ViVa stations on the Bohuslän coast, polled every 30 s. First results:
+cycle detection locks onto real oscillations within the hour, and the
+certainty score correctly stays low in irregular morning breeze.
+
+**Known limitations / roadmap:**
+- Metrics history lives in plugin memory (24 h rolling) — it survives page
+  reloads but **not server restarts**. Disk persistence is next on the list;
+  for real pre-race use it matters.
+- The dashboard's grey "Raw" line only draws for sources that publish a raw
+  TWD stream (stations do; the boat does when its instruments are live).
+- Cycle metrics need a few completed ≥4° swings before they wake up —
+  expect zeros for the first half hour in light or steady air.
+- Not yet published to npm (install from GitHub, see below).
+
+## Screenshots
+
+### Dashboard with multi-station dropdown
+![Waterfall with dropdown](https://github.com/theseal666/signalk-windshift/blob/main/IMG/waterfall%20with%20dropdown.jpeg?raw=true)
+*Flipping between the boat and five ViVa stations (distances shown). Each
+source keeps its own analysis, history and metrics.*
+
+### Metrics bar in action
+![Dashboard](https://github.com/theseal666/signalk-windshift/blob/main/IMG/webb-app.png?raw=true)
+*A detected 3.5-minute cycle with the next shift predicted in 44 seconds,
+during a 68° spread — the certainty gauge stays humble about it.*
+
+### Plugin configuration
+![Plugin settings](https://github.com/theseal666/signalk-windshift/blob/main/IMG/plugin%20settings_new.png?raw=true)
+*Current settings during the soak test: shore-station source path, maneuvers
+ignored (boat swings at the mooring), five stations tracked. The status line
+at the top shows live per-source analysis point counts.*
+
+### Historical analysis in Grafana
 ![Overview](https://github.com/theseal666/signalk-windshift/blob/main/IMG/Overview.png?raw=true)
-*The green line is raw data, blue/orange lines represent the environment.wind.windshift.max/min spread.*
+*Long-term view: raw data (green) inside the emitted min/max envelope
+(blue/orange).*
 
 ## SignalK Paths
 
-The plugin emits the following paths:
+Boat analysis (always on):
 
 | Path | Description | Unit |
 | :--- | :--- | :--- |
@@ -99,9 +179,12 @@ The plugin emits the following paths:
 | `environment.wind.windshift.calibrationOffset` | Half the measured port/starboard difference | rad |
 | `environment.wind.windshift.isSettled` | 1 if boat is settled, 0 during tack lockout | - |
 
+Station analysis (when Track ViVa Stations > 0): the same metrics under
+`environment.observations.viva.<station>.windshift.*`.
+
 Note: `min` and `max` are kept continuous with the tracking window (they may
-fall slightly outside 0–2π when the wind straddles north) so that charting
-tools can draw them without wrap artifacts.
+fall slightly outside 0–2π when the wind straddles north) so charting tools
+can draw them without wrap artifacts.
 
 ## Configuration
 
@@ -115,50 +198,45 @@ tools can draw them without wrap artifacts.
 - **Ignore Maneuvers**: Skip heading/AWA tack detection entirely.
 - **Track ViVa Stations**: Number of nearest shore stations to analyze in parallel (0 = off).
 
-## Multi-station tracking
-
-With [signalk-viva](https://github.com/theseal666/signalk-viva-plugin) installed
-and **Track ViVa Stations** set to N, the plugin runs an independent analyzer
-for each of the N nearest stations, in parallel with the boat's own analysis.
-Stations are discovered automatically from whatever viva publishes — no path
-configuration — and ranked by the `distance` viva reports each poll, so the
-active set follows the boat if it moves. Station results are published under
-`environment.observations.viva.<station>.windshift.*`; the boat stays on
-`environment.wind.windshift.*` as before.
-
-The dashboard gets a **Source** dropdown (boat + active stations with their
-distance). All sources are analyzed continuously in the background — switching
-only changes what is displayed, and each source's chart is seeded from its own
-server-side history. For pre-race preparation: start the plugin a day early,
-and by start time each station around the course shows its own spread, cycle
-period and trend.
-
-Plugin HTTP endpoints (require a logged-in session):
-- `/plugins/windshift/sources` — available sources for the dropdown
-- `/plugins/windshift/history?source=<id>` — metrics history per source
-
 ## Testing against a shore station
 
-For soak testing without going sailing, the plugin can analyze the TWD of a
-nearby weather station instead of the masthead — for example a Sjöfartsverket
-ViVa station published by
-[signalk-viva](https://github.com/theseal666/signalk-viva-plugin):
+For soak testing without going sailing, point the "boat" analysis at a
+nearby weather station instead of the masthead:
 
 - **TWD Source Path**: `environment.observations.viva.vinga.wind.directionTrue`
 - **Ignore Maneuvers**: on — otherwise the boat swinging at the mooring with
-  wind and current would keep triggering the maneuver lockout, even though the
+  wind and current keeps triggering the maneuver lockout, even though the
   station's TWD is unaffected by what the hull is doing.
 
-Station data arrives at polling rate (typically once a minute), so expect one
-analyzed point every couple of minutes: coarse but plenty for verifying cycle
-detection, prediction and long-run stability over a few days. Note that the
-dashboard's "Raw" chart line always follows `environment.wind.directionTrue`,
-so during station testing only the Average/Min/Max lines will draw.
+Station data arrives at polling rate (30–60 s), so expect one analyzed point
+every minute or two: coarse but plenty for verifying cycle detection,
+prediction and long-run stability over days.
+
+## HTTP endpoints
+
+Served by the plugin (require a logged-in session):
+
+- `/plugins/windshift/sources` — available sources for the dashboard dropdown
+- `/plugins/windshift/history?source=<id>` — 24 h metrics history per source
+- `/plugins/windshift/latest?source=<id>` — latest metrics snapshot per source
+
+## Installation
+
+Multi-station version (this branch):
+
+```bash
+cd ~/.signalk
+npm install "https://github.com/theseal666/signalk-windshift.git#feature/multi-station"
+sudo systemctl restart signalk
+```
+
+Stable single-source version: same command without the `#feature/multi-station`.
 
 ## Accessing the Dashboard
 
-Once the plugin is installed and started, you can access the dashboard at:
-`http://<your-signalk-ip>:3000/@jwallinder/windshift`
+Once the plugin is installed and started:
+`http://<your-signalk-ip>/@jwallinder/windshift`
 
 ---
-*Still experimental and under development.*
+*Experimental and under active development — currently in a multi-day live
+soak test against Swedish west coast weather stations.*
