@@ -115,7 +115,20 @@ module.exports = function (app) {
     },
   ];
 
-  function emitMetrics(prefix, metrics) {
+  var pointCounts = {}; // sourceId -> emitted analysis points
+
+  // Live status in the admin UI so data flow is visible without log access
+  function updateStatus() {
+    const parts = [`boat: ${pointCounts.boat || 0}`];
+    for (const [slug, s] of stations) {
+      if (s.active) parts.push(`${slug}: ${pointCounts[slug] || 0}`);
+    }
+    app.setPluginStatus(`Analysis points — ${parts.join(" | ")}`);
+  }
+
+  function emitMetrics(sourceId, prefix, metrics) {
+    pointCounts[sourceId] = (pointCounts[sourceId] || 0) + 1;
+    updateStatus();
     app.handleMessage(plugin.id, {
       context: "vessels." + app.selfId,
       updates: [
@@ -164,6 +177,7 @@ module.exports = function (app) {
           `ViVa station '${slug}' windshift tracking ${nowActive ? "enabled" : "disabled"} (distance ${Math.round(s.distance)} m)`
         );
         if (!nowActive) s.analyzer.reset();
+        updateStatus();
       }
     });
   }
@@ -181,6 +195,8 @@ module.exports = function (app) {
       options.twd_source_path || "environment.wind.directionTrue";
     const ignoreManeuvers = options.ignore_maneuvers || false;
     maxStations = options.track_viva_stations || 0;
+    pointCounts = {};
+    app.setPluginStatus("Waiting for wind data");
 
     boatAnalyzer = createAnalyzer();
     boatAnalyzer.logger(app.debug);
@@ -212,7 +228,7 @@ module.exports = function (app) {
           if (typeof value !== "number" || isNaN(value)) return;
 
           boatAnalyzer.appendWindDirection(value, stream_value.timestamp, (metrics) =>
-            emitMetrics(BOAT_PREFIX, metrics)
+            emitMetrics("boat", BOAT_PREFIX, metrics)
           );
         })
     );
@@ -260,7 +276,7 @@ module.exports = function (app) {
           const station = getStation(slug);
           if (!station.active) return;
           station.analyzer.appendWindDirection(pathValue.value, pathValue.timestamp, (metrics) =>
-            emitMetrics(stationPrefix(slug), metrics)
+            emitMetrics(slug, stationPrefix(slug), metrics)
           );
         })
       );
