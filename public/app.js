@@ -273,6 +273,8 @@ function loadSources() {
         .then(r => (r.ok ? r.json() : [{ id: "boat", label: "Boat", distance: null }]))
         .catch(() => [{ id: "boat", label: "Boat", distance: null }])
         .then(sources => {
+            // Never wipe the dropdown on a bad response — keep what we have
+            if (!Array.isArray(sources) || sources.length === 0) return;
             const sel = document.getElementById("source-select");
             sel.innerHTML = "";
             sources.forEach(s => {
