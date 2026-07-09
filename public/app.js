@@ -381,7 +381,11 @@ function loadHistory(src) {
     if (src !== "boat") fetches.push(fetchHistory("boat"));
     return Promise.all(fetches).then(([hist, boatHist]) => {
         const byTime = new Map();
-        hist.forEach(p => byTime.set(p.t, { avg: p.avg, min: p.min, max: p.max }));
+        hist.forEach(p => byTime.set(p.t, {
+            avg: p.avg, min: p.min, max: p.max,
+            speed: p.speed != null ? p.speed : null,
+            gust: p.gust != null ? p.gust : null,
+        }));
         (boatHist || []).forEach(p => {
             const e = byTime.get(p.t) || {};
             e.boat = p.avg;
@@ -400,6 +404,19 @@ function loadHistory(src) {
             chartData[6].push(e.speed != null ? e.speed : null);
             chartData[7].push(e.gust != null ? e.gust : null);
         });
+
+        // Seed the header from the most recent history entry that has speed/gust
+        // so the display is not "--" until the next live poll arrives
+        for (let i = times.length - 1; i >= 0; i--) {
+            const e = byTime.get(times[i]);
+            if (e.speed != null || e.gust != null) {
+                if (e.speed != null) { latestSpeed = e.speed; speedBuffer = [e.speed]; }
+                if (e.gust != null) latestGust = e.gust;
+                showWind();
+                break;
+            }
+        }
+
         if (uplot) uplot.setData(chartData);
     });
 }
