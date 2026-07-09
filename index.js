@@ -17,6 +17,7 @@ module.exports = function (app) {
   var maxStations = 0;
   var persistTimer = null;
   var persistedHistory = {};
+  var boatTwdSourcePath = "environment.wind.directionTrue"; // kept for /sources
 
   const PERSIST_INTERVAL_MS = 5 * 60 * 1000;
 
@@ -241,6 +242,7 @@ module.exports = function (app) {
       ((options.shift_threshold_deg || DEFAULT_SHIFT_THRESHOLD_DEG) * Math.PI) / 180;
     const twdSourcePath =
       options.twd_source_path || "environment.wind.directionTrue";
+    boatTwdSourcePath = twdSourcePath;
     const ignoreManeuvers = options.ignore_maneuvers || false;
     maxStations = options.track_viva_stations || 0;
     pointCounts = {};
@@ -339,12 +341,33 @@ module.exports = function (app) {
     }
   };
 
+  // Derive speed/gust paths that match a given TWD source path.
+  // If TWD comes from a ViVa station, use that same station's speed/gust.
+  const VIVA_DIR_RE2 = /^environment\.observations\.viva\.([^.]+)\.wind\.directionTrue$/;
+  function speedGustPaths(twdPath) {
+    const m = VIVA_DIR_RE2.exec(twdPath);
+    if (m) {
+      return {
+        speedPath: `environment.observations.viva.${m[1]}.wind.averageSpeed`,
+        gustPath: `environment.observations.viva.${m[1]}.wind.gust`,
+      };
+    }
+    return { speedPath: "environment.wind.speedTrue", gustPath: "environment.wind.gust" };
+  }
+
   plugin.registerWithRouter = function (router) {
-    // Sources for the dashboard dropdown: the boat plus active stations
+    // Sources for the dashboard dropdown: the boat plus active stations.
+    // speedPath/gustPath let the dashboard subscribe to the right paths
+    // even when the boat's TWD source is a shore station.
     router.get("/sources", (req, res) => {
-      const sources = [{ id: "boat", label: "Boat", distance: null }];
+      const boatPaths = speedGustPaths(boatTwdSourcePath);
+      const sources = [{ id: "boat", label: "Boat", distance: null, ...boatPaths }];
       for (const [slug, s] of stations) {
-        if (s.active) sources.push({ id: slug, label: slug, distance: s.distance });
+        if (s.active) sources.push({
+          id: slug, label: slug, distance: s.distance,
+          speedPath: `environment.observations.viva.${slug}.wind.averageSpeed`,
+          gustPath: `environment.observations.viva.${slug}.wind.gust`,
+        });
       }
       res.json(sources);
     });

@@ -22,10 +22,16 @@ const windshiftPrefix = (src) =>
     src === "boat" ? "environment.wind.windshift." : `environment.observations.viva.${src}.windshift.`;
 const rawPath = (src) =>
     src === "boat" ? "environment.wind.directionTrue" : `environment.observations.viva.${src}.wind.directionTrue`;
+
+// Speed/gust paths are normally computable from the source id, but when the
+// boat's TWD source is a shore station the server tells us the real paths.
+let sourcePaths = new Map(); // id -> { speedPath, gustPath }
 const speedPath = (src) =>
-    src === "boat" ? "environment.wind.speedTrue" : `environment.observations.viva.${src}.wind.averageSpeed`;
+    (sourcePaths.get(src) || {}).speedPath ||
+    (src === "boat" ? "environment.wind.speedTrue" : `environment.observations.viva.${src}.wind.averageSpeed`);
 const gustPath = (src) =>
-    src === "boat" ? "environment.wind.gust" : `environment.observations.viva.${src}.wind.gust`;
+    (sourcePaths.get(src) || {}).gustPath ||
+    (src === "boat" ? "environment.wind.gust" : `environment.observations.viva.${src}.wind.gust`);
 
 const MS_TO_KN = 1.94384;
 
@@ -412,6 +418,13 @@ function loadSources() {
                 opt.value = s.id;
                 opt.text = s.distance == null ? s.label : `${s.label} (${(s.distance / 1852).toFixed(1)} nm)`;
                 sel.appendChild(opt);
+            });
+            // Store server-provided speed/gust paths so handleValue can
+            // subscribe to the right paths (e.g. ViVa station as boat TWD source)
+            sources.forEach(s => {
+                if (s.speedPath || s.gustPath) {
+                    sourcePaths.set(s.id, { speedPath: s.speedPath, gustPath: s.gustPath });
+                }
             });
             if ([...sel.options].some(o => o.value === currentSource)) {
                 sel.value = currentSource;
