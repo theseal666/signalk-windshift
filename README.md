@@ -107,21 +107,29 @@ follows the boat if it moves mid-race. Station results publish under
 
 ### Dashboard
 
-The built-in webapp shows a tactical metrics bar (TWD, delta, trend, cycle,
-next-shift countdown, certainty gauge) over a "waterfall" chart of raw TWD,
-smoothed TWD and the min/max envelope. A **Source** dropdown switches between
-the boat and the tracked stations — every source is analyzed continuously in
-the background, so switching is instant: the chart seeds from server-side
-history and the metrics bar fills from the latest snapshot. Station views
-overlay the boat's smoothed TWD as a purple reference line, so a station and
-the boat can be compared directly on one chart. Cursor readouts are in
-compass degrees and "minutes ago".
+The built-in webapp shows a tactical metrics bar (average wind speed / gust,
+TWD, delta, trend, cycle, next-shift countdown, certainty gauge) over a
+"waterfall" chart of raw TWD, smoothed TWD, the min/max envelope, and wind
+speed + gust on a right-side knots axis. A **Source** dropdown switches
+between the boat and the tracked stations — every source is analyzed
+continuously in the background, so switching is instant: the chart seeds from
+server-side history and the metrics bar fills from the latest snapshot.
+Station views overlay the boat's smoothed TWD as a purple reference line, so
+a station and the boat can be compared directly on one chart. Cursor readouts
+are in compass degrees (direction) or knots (speed), and "minutes ago" on the
+time axis.
+
+The "Avg Wind" header value is a 2-minute rolling average of received wind
+speed samples, smoothing out short-term noise. Gust is the instrument's own
+reported gust value — for ViVa shore stations this maps to *Byvind*; for the
+boat it requires a gust sensor mapped to `environment.wind.gust` in the
+instrument configuration.
 
 ## Current state (July 2026)
 
 **Branches:**
 - `main` — v0.0.6: single-source analysis, stable.
-- `feature/multi-station` — v0.2.0: everything described above; running on
+- `feature/multi-station` — v0.3.0: everything described above; running on
   the test boat now. Will be merged to main after the soak test.
 
 **Live soak test:** the plugin currently runs 24/7 on a Raspberry Pi,

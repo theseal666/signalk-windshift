@@ -4,11 +4,13 @@ const SK_WS_URL = `${SK_WS_PROTO}://${window.location.hostname}:${window.locatio
 let uplot;
 let chartData = [
     [], // time
-    [], // raw
-    [], // smooth
-    [], // min
-    [], // max
-    []  // boat average (reference line on station views)
+    [], // raw TWD
+    [], // smooth TWD
+    [], // min TWD
+    [], // max TWD
+    [], // boat average (reference line on station views)
+    [], // wind speed (kn)
+    [], // gust (kn)
 ];
 
 // Which source the dashboard is looking at: "boat" or a ViVa station slug.
@@ -39,7 +41,8 @@ function initChart() {
         height: container.offsetHeight - 50,
         scales: {
             x: { time: true },
-            y: { range: (self, min, max) => [min - 0.1, max + 0.1] }
+            y: { range: (self, min, max) => [min - 0.1, max + 0.1] },
+            speed: { range: (self, min, max) => [0, Math.max(max * 1.2, 20 / MS_TO_KN)] }
         },
         series: [
             {
@@ -82,7 +85,24 @@ function initChart() {
                 value: degreeValue,
                 spanGaps: true,
                 show: false, // only shown on station views
-            }
+            },
+            {
+                label: "Wind",
+                scale: "speed",
+                stroke: "#00bcd4",
+                width: 2,
+                value: (u, v) => v == null ? "--" : (v * MS_TO_KN).toFixed(1) + " kn",
+                spanGaps: true,
+            },
+            {
+                label: "Gust",
+                scale: "speed",
+                stroke: "#ff5722",
+                width: 2,
+                dash: [4, 4],
+                value: (u, v) => v == null ? "--" : (v * MS_TO_KN).toFixed(1) + " kn",
+                spanGaps: true,
+            },
         ],
         axes: [
             {},
@@ -93,6 +113,13 @@ function initChart() {
                     const deg = ((v * 180 / Math.PI) % 360 + 360) % 360;
                     return deg.toFixed(0) + "°";
                 })
+            },
+            {
+                scale: "speed",
+                side: 1,
+                grid: { show: false },
+                ticks: { stroke: "#555" },
+                values: (self, ticks) => ticks.map(v => (v * MS_TO_KN).toFixed(0) + " kn"),
             }
         ],
         cursor: {
@@ -151,8 +178,9 @@ let latestSmooth = null;
 let latestMin = null;
 let latestMax = null;
 let latestBoatAvg = null;
-let latestSpeed = null;
+let latestSpeed = null; // rolling average of recent wind speeds (m/s)
 let latestGust = null;
+let speedBuffer = []; // raw samples driving the rolling average (m/s)
 
 function showWind() {
     const spd = latestSpeed != null ? (latestSpeed * MS_TO_KN).toFixed(1) : "--";
@@ -169,7 +197,9 @@ function handleValue(path, value, timestamp) {
 
     if (path === speedPath(currentSource)) {
         if (typeof value !== "number") return;
-        latestSpeed = value;
+        speedBuffer.push(value);
+        if (speedBuffer.length > 120) speedBuffer.shift(); // ~2-min rolling window at 1 Hz
+        latestSpeed = speedBuffer.reduce((a, b) => a + b, 0) / speedBuffer.length;
         showWind();
         return;
     }
@@ -297,6 +327,8 @@ function updateChart(timestamp) {
     chartData[3].push(unwrapForChart(chartData[3], latestMin));
     chartData[4].push(unwrapForChart(chartData[4], latestMax));
     chartData[5].push(currentSource === "boat" ? null : unwrapForChart(chartData[5], latestBoatAvg));
+    chartData[6].push(latestSpeed != null ? latestSpeed : null);
+    chartData[7].push(latestGust != null ? latestGust : null);
 
     // Keep roughly the last 30 minutes of data
     if (chartData[0].length > 1800) {
@@ -338,6 +370,8 @@ function loadHistory(src) {
             chartData[3].push(unwrapForChart(chartData[3], e.min != null ? e.min : null));
             chartData[4].push(unwrapForChart(chartData[4], e.max != null ? e.max : null));
             chartData[5].push(unwrapForChart(chartData[5], e.boat != null ? e.boat : null));
+            chartData[6].push(null); // wind speed not kept in server-side history
+            chartData[7].push(null); // gust not kept in server-side history
         });
         if (uplot) uplot.setData(chartData);
     });
@@ -365,9 +399,10 @@ function loadSources() {
 }
 
 function resetView() {
-    chartData = [[], [], [], [], [], []];
+    chartData = [[], [], [], [], [], [], [], []];
     latestRaw = latestSmooth = latestMin = latestMax = null;
     latestSpeed = latestGust = null;
+    speedBuffer = [];
     if (uplot) uplot.setData(chartData);
     document.querySelectorAll("#dashboard header .metric .value").forEach(el => {
         el.innerText = "--";
