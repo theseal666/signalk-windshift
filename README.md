@@ -121,7 +121,7 @@ compass degrees and "minutes ago".
 
 **Branches:**
 - `main` — v0.0.6: single-source analysis, stable.
-- `feature/multi-station` — v0.1.1: everything described above; running on
+- `feature/multi-station` — v0.2.0: everything described above; running on
   the test boat now. Will be merged to main after the soak test.
 
 **Live soak test:** the plugin currently runs 24/7 on a Raspberry Pi,
@@ -131,15 +131,22 @@ ViVa stations on the Bohuslän coast, polled every 30 s. First results:
 cycle detection locks onto real oscillations within the hour, and the
 certainty score correctly stays low in irregular morning breeze.
 
+**Persistence:** each source's 24 h metrics history is saved to disk (the
+plugin data directory, `windshift-history.json`) every 5 minutes and on
+shutdown, and restored on startup — so the waterfall survives server
+restarts. Deeper analyzer state (cycle statistics, calibration) is
+deliberately not persisted; it rebuilds from live data within ~half an hour.
+
 **Known limitations / roadmap:**
-- Metrics history lives in plugin memory (24 h rolling) — it survives page
-  reloads but **not server restarts**. Disk persistence is next on the list;
-  for real pre-race use it matters.
+- Cycle metrics need a few completed ≥4° swings before they wake up —
+  expect zeros for the first half hour in light or steady air, and after
+  a server restart.
 - The dashboard's grey "Raw" line only draws for sources that publish a raw
   TWD stream (stations do; the boat does when its instruments are live).
-- Cycle metrics need a few completed ≥4° swings before they wake up —
-  expect zeros for the first half hour in light or steady air.
 - Not yet published to npm (install from GitHub, see below).
+- Next up: forecast verification as a fully independent companion plugin
+  ([signalk-forecast-skill](https://github.com/theseal666/signalk-forecast-skill)) —
+  scoring weather models against these observations.
 
 ## Screenshots
 

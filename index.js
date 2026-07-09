@@ -1,4 +1,7 @@
 const createAnalyzer = require("./windshiftAnalysis.js");
+const fs = require("fs");
+const path = require("path");
+const os = require("os");
 
 module.exports = function (app) {
   var plugin = {};
@@ -12,6 +15,50 @@ module.exports = function (app) {
   var stations = new Map(); // slug -> { analyzer, distance, active }
   var stationSettings = null;
   var maxStations = 0;
+  var persistTimer = null;
+  var persistedHistory = {};
+
+  const PERSIST_INTERVAL_MS = 5 * 60 * 1000;
+
+  function historyFilePath() {
+    const dir =
+      typeof app.getDataDirPath === "function"
+        ? app.getDataDirPath()
+        : path.join(os.homedir(), ".signalk");
+    return path.join(dir, "windshift-history.json");
+  }
+
+  function loadPersistedHistory() {
+    try {
+      const parsed = JSON.parse(fs.readFileSync(historyFilePath(), "utf8"));
+      return parsed && parsed.sources ? parsed.sources : {};
+    } catch (e) {
+      return {}; // no file yet, or unreadable — start fresh
+    }
+  }
+
+  // Written atomically (tmp + rename) so a crash mid-write can't corrupt
+  // the previous good snapshot
+  function persistHistory() {
+    const sources = {};
+    if (boatAnalyzer && boatAnalyzer.history().length) {
+      sources.boat = boatAnalyzer.history();
+    }
+    for (const [slug, s] of stations) {
+      if (s.analyzer.history().length) {
+        sources[slug] = s.analyzer.history();
+      }
+    }
+    try {
+      const file = historyFilePath();
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      const tmp = file + ".tmp";
+      fs.writeFileSync(tmp, JSON.stringify({ savedAt: Date.now(), sources }));
+      fs.renameSync(tmp, file);
+    } catch (e) {
+      app.error("Failed to persist windshift history: " + e.message);
+    }
+  }
 
   const DEFAULT_AVG_BUFFER = 10; //seconds
   const DEFAULT_MIN_MAX_BUFFER = 20; //mins
@@ -156,6 +203,7 @@ module.exports = function (app) {
       const analyzer = createAnalyzer();
       analyzer.logger((msg) => app.debug(`[${slug}] ${msg}`));
       analyzer.config(stationSettings);
+      analyzer.seedHistory(persistedHistory[slug] || []);
       stations.set(slug, { analyzer, distance: null, active: false });
       app.debug(`Discovered ViVa station '${slug}' for windshift tracking`);
       app.handleMessage(plugin.id, { updates: [{ meta: metaFor(stationPrefix(slug)) }] });
@@ -208,6 +256,14 @@ module.exports = function (app) {
       tack_lockout_s: options.tack_lockout_s || 60,
       shift_threshold_rad,
     });
+
+    persistedHistory = loadPersistedHistory();
+    boatAnalyzer.seedHistory(persistedHistory.boat || []);
+    const restored = Object.entries(persistedHistory)
+      .map(([id, pts]) => `${id}: ${pts.length}`)
+      .join(", ");
+    if (restored) app.debug("Restored persisted history — " + restored);
+    persistTimer = setInterval(persistHistory, PERSIST_INTERVAL_MS);
 
     // Shore stations don't tack, so no maneuver handling or calibration
     stationSettings = {
@@ -318,6 +374,11 @@ module.exports = function (app) {
   };
 
   plugin.stop = function () {
+    if (persistTimer) {
+      clearInterval(persistTimer);
+      persistTimer = null;
+    }
+    persistHistory(); // before reset wipes the analyzers
     unsubscribes.forEach((f) => f());
     unsubscribes = [];
     if (boatAnalyzer) boatAnalyzer.reset();

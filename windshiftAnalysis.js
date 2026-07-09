@@ -198,6 +198,15 @@ function createAnalyzer() {
 
     latest: () => lastMetrics,
 
+    // Preload persisted history (e.g. from disk after a server restart)
+    seedHistory: (points) => {
+      if (!Array.isArray(points)) return;
+      const cutoff = Date.now() - HISTORY_MAX_AGE_S * 1000;
+      metricsHistory = points.filter(
+        (p) => p && typeof p.t === "number" && p.t > cutoff
+      );
+    },
+
     config: (config) => {
       debug("incoming config: " + JSON.stringify(config));
       buffer_timeout_s = config.buffer_timeout_s || DEFAULT_AVG_BUFFER;
