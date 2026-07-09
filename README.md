@@ -27,11 +27,11 @@ Raw masthead data doesn't answer any of this directly — it looks like the
 green noise below. The underlying rhythm (hand-marked in red) is what we
 want the plugin to extract automatically:
 
-![What we want](https://github.com/theseal666/signalk-windshift/blob/main/IMG/what%20we%20want.png?raw=true)
+![What we want](IMG/what%20we%20want.png)
 *Raw TWD (green) with the underlying oscillation traced by hand — the plugin's
 job is to find this rhythm without the hand.*
 
-![What we want 2](https://github.com/theseal666/signalk-windshift/blob/main/IMG/what%20we%20want%202.png?raw=true)
+![What we want 2](IMG/what%20we%20want%202.png)
 *The same idea with the oscillation envelope marked: spread, period and phase
 are the tactical currency.*
 
@@ -142,23 +142,23 @@ certainty score correctly stays low in irregular morning breeze.
 ## Screenshots
 
 ### Dashboard with multi-station dropdown
-![Waterfall with dropdown](https://github.com/theseal666/signalk-windshift/blob/main/IMG/waterfall%20with%20dropdown.jpeg?raw=true)
+![Waterfall with dropdown](IMG/waterfall%20with%20dropdown.jpeg)
 *Flipping between the boat and five ViVa stations (distances shown). Each
 source keeps its own analysis, history and metrics.*
 
 ### Metrics bar in action
-![Dashboard](https://github.com/theseal666/signalk-windshift/blob/main/IMG/webb-app.png?raw=true)
+![Dashboard](IMG/webb-app.png)
 *A detected 3.5-minute cycle with the next shift predicted in 44 seconds,
 during a 68° spread — the certainty gauge stays humble about it.*
 
 ### Plugin configuration
-![Plugin settings](https://github.com/theseal666/signalk-windshift/blob/main/IMG/plugin%20settings_new.png?raw=true)
+![Plugin settings](IMG/plugin%20settings_new.png)
 *Current settings during the soak test: shore-station source path, maneuvers
 ignored (boat swings at the mooring), five stations tracked. The status line
 at the top shows live per-source analysis point counts.*
 
 ### Historical analysis in Grafana
-![Overview](https://github.com/theseal666/signalk-windshift/blob/main/IMG/Overview.png?raw=true)
+![Overview](IMG/Overview.png)
 *Long-term view: raw data (green) inside the emitted min/max envelope
 (blue/orange).*
 
