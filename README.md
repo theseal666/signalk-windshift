@@ -151,6 +151,10 @@ deliberately not persisted; it rebuilds from live data within ~half an hour.
   a server restart.
 - The dashboard's grey "Raw" line only draws for sources that publish a raw
   TWD stream (stations do; the boat does when its instruments are live).
+- **Chart time-axis zoom** — drag to select a time window, double-click or
+  a "Reset zoom" button to return to the full view. uPlot supports this
+  natively; the current code disables it (`setScale: false`) pending a clean
+  UX for the reset affordance.
 - Not yet published to npm (install from GitHub, see below).
 - Next up: forecast verification as a fully independent companion plugin
   ([signalk-forecast-skill](https://github.com/theseal666/signalk-forecast-skill)) —
