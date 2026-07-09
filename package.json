@@ -1,6 +1,6 @@
 {
   "name": "@jwallinder/windshift",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "SignalK plugin to analyze wind shifts and detect cyclic oscillations in True Wind Direction (TWD)",
   "main": "index.js",
   "scripts": {

@@ -77,6 +77,27 @@ main {
     padding: 10px;
     display: flex;
     flex-direction: column;
+    position: relative;
+}
+
+#reset-zoom {
+    display: none;
+    position: absolute;
+    top: 18px;
+    right: 18px;
+    z-index: 20;
+    background: rgba(30, 30, 30, 0.85);
+    color: #ccc;
+    border: 1px solid #555;
+    border-radius: 4px;
+    padding: 4px 12px;
+    font-size: 0.8rem;
+    cursor: pointer;
+}
+
+#reset-zoom:hover {
+    background: rgba(60, 60, 60, 0.95);
+    color: #fff;
 }
 
 #chart-container {

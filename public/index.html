@@ -6,7 +6,7 @@
     <title>Windshift Dashboard</title>
     <!-- Version query strings force browsers to refetch matching assets after
          every release instead of mixing cached JS with fresh HTML -->
-    <link rel="stylesheet" href="style.css?v=0.3.0">
+    <link rel="stylesheet" href="style.css?v=0.3.1">
     <link rel="stylesheet" href="https://unpkg.com/uplot/dist/uPlot.min.css">
 </head>
 <body>
@@ -48,10 +48,11 @@
             </div>
         </header>
         <main>
+            <button id="reset-zoom" title="Double-click chart to reset">↩ Reset zoom</button>
             <div id="chart-container"></div>
         </main>
     </div>
     <script src="https://unpkg.com/uplot/dist/uPlot.iife.min.js"></script>
-    <script src="app.js?v=0.3.0"></script>
+    <script src="app.js?v=0.3.1"></script>
 </body>
 </html>

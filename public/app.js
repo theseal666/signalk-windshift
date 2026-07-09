@@ -123,11 +123,25 @@ function initChart() {
             }
         ],
         cursor: {
-            drag: { setScale: false }
+            drag: { x: true, y: false }
+        },
+        hooks: {
+            setScale: [
+                (u, key) => {
+                    if (key !== "x") return;
+                    const xData = u.data[0];
+                    if (!xData || xData.length < 2) return;
+                    const zoomed = u.scales.x.min > xData[0] + 1 ||
+                                   u.scales.x.max < xData[xData.length - 1] - 1;
+                    document.getElementById("reset-zoom").style.display = zoomed ? "block" : "none";
+                }
+            ]
         }
     };
 
     uplot = new uPlot(opts, chartData, container);
+
+    document.getElementById("chart-container").addEventListener("dblclick", resetZoom);
 
     window.addEventListener("resize", () => {
         uplot.setSize({
@@ -278,6 +292,13 @@ function showNextShift(value) {
     const secs = Math.floor(value % 60);
     document.querySelector("#next-shift .value").innerText = `${mins}:${secs.toString().padStart(2, '0')}`;
 }
+
+function resetZoom() {
+    if (!uplot || chartData[0].length === 0) return;
+    uplot.setScale("x", { min: chartData[0][0], max: chartData[0][chartData[0].length - 1] });
+}
+
+document.getElementById("reset-zoom").addEventListener("click", resetZoom);
 
 // Fill the metrics bar from the plugin's latest snapshot so switching
 // sources gives a full overview immediately instead of waiting up to a

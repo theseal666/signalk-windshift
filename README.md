@@ -117,7 +117,8 @@ server-side history and the metrics bar fills from the latest snapshot.
 Station views overlay the boat's smoothed TWD as a purple reference line, so
 a station and the boat can be compared directly on one chart. Cursor readouts
 are in compass degrees (direction) or knots (speed), and "minutes ago" on the
-time axis.
+time axis. **Drag** the chart to zoom in on a time window; **double-click**
+or press the "Reset zoom" button to return to the full view.
 
 The "Avg Wind" header value is a 2-minute rolling average of received wind
 speed samples, smoothing out short-term noise. Gust is the instrument's own
@@ -151,10 +152,6 @@ deliberately not persisted; it rebuilds from live data within ~half an hour.
   a server restart.
 - The dashboard's grey "Raw" line only draws for sources that publish a raw
   TWD stream (stations do; the boat does when its instruments are live).
-- **Chart time-axis zoom** — drag to select a time window, double-click or
-  a "Reset zoom" button to return to the full view. uPlot supports this
-  natively; the current code disables it (`setScale: false`) pending a clean
-  UX for the reset affordance.
 - Not yet published to npm (install from GitHub, see below).
 - Next up: forecast verification as a fully independent companion plugin
   ([signalk-forecast-skill](https://github.com/theseal666/signalk-forecast-skill)) —
