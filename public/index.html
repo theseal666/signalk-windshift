@@ -6,7 +6,7 @@
     <title>Windshift Dashboard</title>
     <!-- Version query strings force browsers to refetch matching assets after
          every release instead of mixing cached JS with fresh HTML -->
-    <link rel="stylesheet" href="style.css?v=0.1.2">
+    <link rel="stylesheet" href="style.css?v=0.2.0">
     <link rel="stylesheet" href="https://unpkg.com/uplot/dist/uPlot.min.css">
 </head>
 <body>
@@ -19,6 +19,10 @@
             <div class="metric" id="current-twd">
                 <label>Current TWD</label>
                 <span class="value">--°</span>
+            </div>
+            <div class="metric" id="wind">
+                <label>Wind / Gust</label>
+                <span class="value">--</span>
             </div>
             <div class="metric" id="delta-twd">
                 <label>Delta</label>
@@ -48,6 +52,6 @@
         </main>
     </div>
     <script src="https://unpkg.com/uplot/dist/uPlot.iife.min.js"></script>
-    <script src="app.js?v=0.1.2"></script>
+    <script src="app.js?v=0.2.0"></script>
 </body>
 </html>

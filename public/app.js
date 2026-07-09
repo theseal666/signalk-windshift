@@ -20,6 +20,12 @@ const windshiftPrefix = (src) =>
     src === "boat" ? "environment.wind.windshift." : `environment.observations.viva.${src}.windshift.`;
 const rawPath = (src) =>
     src === "boat" ? "environment.wind.directionTrue" : `environment.observations.viva.${src}.wind.directionTrue`;
+const speedPath = (src) =>
+    src === "boat" ? "environment.wind.speedTrue" : `environment.observations.viva.${src}.wind.averageSpeed`;
+const gustPath = (src) =>
+    src === "boat" ? "environment.wind.gust" : `environment.observations.viva.${src}.wind.gust`;
+
+const MS_TO_KN = 1.94384;
 
 // Chart data is stored unwrapped (may drift outside 0-360), so fold the
 // cursor readout back into compass degrees
@@ -113,6 +119,8 @@ function connectSK() {
             context: "vessels.self",
             subscribe: [
                 { path: "environment.wind.directionTrue" },
+                { path: "environment.wind.speedTrue" },
+                { path: "environment.wind.gust" },
                 { path: "environment.wind.windshift.*" },
                 { path: "environment.observations.viva.*" }
             ]
@@ -143,12 +151,33 @@ let latestSmooth = null;
 let latestMin = null;
 let latestMax = null;
 let latestBoatAvg = null;
+let latestSpeed = null;
+let latestGust = null;
+
+function showWind() {
+    const spd = latestSpeed != null ? (latestSpeed * MS_TO_KN).toFixed(1) : "--";
+    const gust = latestGust != null ? (latestGust * MS_TO_KN).toFixed(1) : "--";
+    document.querySelector("#wind .value").innerText = `${spd} / ${gust} kn`;
+}
 
 function handleValue(path, value, timestamp) {
     // The boat's smoothed TWD is tracked regardless of the displayed source,
     // so station views can overlay it as a reference line
     if (path === "environment.wind.windshift.avg" && typeof value === "number") {
         latestBoatAvg = value;
+    }
+
+    if (path === speedPath(currentSource)) {
+        if (typeof value !== "number") return;
+        latestSpeed = value;
+        showWind();
+        return;
+    }
+    if (path === gustPath(currentSource)) {
+        if (typeof value !== "number") return;
+        latestGust = value;
+        showWind();
+        return;
     }
 
     if (path === rawPath(currentSource)) {
@@ -338,6 +367,7 @@ function loadSources() {
 function resetView() {
     chartData = [[], [], [], [], [], []];
     latestRaw = latestSmooth = latestMin = latestMax = null;
+    latestSpeed = latestGust = null;
     if (uplot) uplot.setData(chartData);
     document.querySelectorAll("#dashboard header .metric .value").forEach(el => {
         el.innerText = "--";
