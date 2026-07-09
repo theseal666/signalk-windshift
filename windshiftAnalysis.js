@@ -44,6 +44,7 @@ function createAnalyzer() {
   var last_corrected_twd = null;
   var unwrappedTWD = null;
   var metricsHistory = [];
+  var lastMetrics = null;
 
   // Zigzag shift detector state
   var swingDir = 0; // 1 = veering, -1 = backing, 0 = not yet determined
@@ -195,6 +196,8 @@ function createAnalyzer() {
 
     history: () => metricsHistory,
 
+    latest: () => lastMetrics,
+
     config: (config) => {
       debug("incoming config: " + JSON.stringify(config));
       buffer_timeout_s = config.buffer_timeout_s || DEFAULT_AVG_BUFFER;
@@ -230,6 +233,7 @@ function createAnalyzer() {
       portMeans = [];
       calibrationOffset = 0;
       metricsHistory = [];
+      lastMetrics = null;
     },
 
     setHeading: (heading) => {
@@ -322,20 +326,22 @@ function createAnalyzer() {
         (p) => timestamp - p.t < HISTORY_MAX_AGE_S * 1000
       );
 
+      lastMetrics = {
+        timestamp: timestamp_in,
+        maxTWD: max,
+        minTWD: min,
+        avgTWD: current,
+        delta: max - min,
+        cyclePeriod,
+        certainty,
+        timeToNextShift,
+        trend,
+        calibrationOffset,
+        isSettled,
+      };
+
       if (update) {
-        update({
-          timestamp: timestamp_in,
-          maxTWD: max,
-          minTWD: min,
-          avgTWD: current,
-          delta: max - min,
-          cyclePeriod,
-          certainty,
-          timeToNextShift,
-          trend,
-          calibrationOffset,
-          isSettled,
-        });
+        update(lastMetrics);
       }
     },
   };

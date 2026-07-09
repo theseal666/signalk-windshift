@@ -157,28 +157,66 @@ function handleValue(path, value, timestamp) {
     } else if (metric === "min") {
         latestMin = value;
     } else if (metric === "delta") {
-        document.querySelector("#delta-twd .value").innerText = (value * 180 / Math.PI).toFixed(1) + "°";
+        showDelta(value);
     } else if (metric === "trend") {
-        const trendEl = document.querySelector("#trend .value");
-        if (value === 1) {
-            trendEl.innerText = "Veering ↗";
-            trendEl.style.color = "#4caf50";
-        } else if (value === -1) {
-            trendEl.innerText = "Backing ↘";
-            trendEl.style.color = "#f44336";
-        } else {
-            trendEl.innerText = "Steady";
-            trendEl.style.color = "#fff";
-        }
+        showTrend(value);
     } else if (metric === "cyclePeriod") {
-        document.querySelector("#cycle-period .value").innerText = (value / 60).toFixed(1) + "m";
+        showCyclePeriod(value);
     } else if (metric === "certainty") {
-        document.querySelector(".gauge-bar").style.width = (value * 100) + "%";
+        showCertainty(value);
     } else if (metric === "timeToNextShift") {
-        const mins = Math.floor(value / 60);
-        const secs = Math.floor(value % 60);
-        document.querySelector("#next-shift .value").innerText = `${mins}:${secs.toString().padStart(2, '0')}`;
+        showNextShift(value);
     }
+}
+
+function showDelta(value) {
+    document.querySelector("#delta-twd .value").innerText = (value * 180 / Math.PI).toFixed(1) + "°";
+}
+
+function showTrend(value) {
+    const trendEl = document.querySelector("#trend .value");
+    if (value === 1) {
+        trendEl.innerText = "Veering ↗";
+        trendEl.style.color = "#4caf50";
+    } else if (value === -1) {
+        trendEl.innerText = "Backing ↘";
+        trendEl.style.color = "#f44336";
+    } else {
+        trendEl.innerText = "Steady";
+        trendEl.style.color = "#fff";
+    }
+}
+
+function showCyclePeriod(value) {
+    document.querySelector("#cycle-period .value").innerText = (value / 60).toFixed(1) + "m";
+}
+
+function showCertainty(value) {
+    document.querySelector(".gauge-bar").style.width = (value * 100) + "%";
+}
+
+function showNextShift(value) {
+    const mins = Math.floor(value / 60);
+    const secs = Math.floor(value % 60);
+    document.querySelector("#next-shift .value").innerText = `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+
+// Fill the metrics bar from the plugin's latest snapshot so switching
+// sources gives a full overview immediately instead of waiting up to a
+// minute for the next live update
+function loadLatest(src) {
+    return fetch(`/plugins/windshift/latest?source=${encodeURIComponent(src)}`)
+        .then(r => (r.ok ? r.json() : null))
+        .catch(() => null)
+        .then(m => {
+            if (!m) return;
+            document.querySelector("#current-twd .value").innerText = (m.avgTWD * 180 / Math.PI).toFixed(0) + "°";
+            showDelta(m.delta);
+            showTrend(m.trend);
+            showCyclePeriod(m.cyclePeriod);
+            showCertainty(m.certainty);
+            showNextShift(m.timeToNextShift);
+        });
 }
 
 // Keep each series continuous across the 0/360 wrap so a northerly wind
@@ -264,13 +302,14 @@ function switchSource(id) {
     currentSource = id;
     resetView();
     loadHistory(id);
+    loadLatest(id);
 }
 
 document.getElementById("source-select").addEventListener("change", (e) => switchSource(e.target.value));
 
 initChart();
 loadSources()
-    .then(() => loadHistory(currentSource))
+    .then(() => Promise.all([loadHistory(currentSource), loadLatest(currentSource)]))
     .then(connectSK);
 // Stations can appear or drop off as viva discovers them / the boat moves
 setInterval(loadSources, 5 * 60 * 1000);

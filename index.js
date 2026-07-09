@@ -293,6 +293,18 @@ module.exports = function (app) {
       res.json(sources);
     });
 
+    // Latest metrics snapshot per source, so the dashboard can fill the
+    // metrics bar immediately when switching sources instead of waiting
+    // for the next live update
+    router.get("/latest", (req, res) => {
+      const src = req.query.source;
+      if (!src || src === "boat") {
+        return res.json(boatAnalyzer ? boatAnalyzer.latest() : null);
+      }
+      const station = stations.get(src);
+      res.json(station ? station.analyzer.latest() : null);
+    });
+
     // Served at /plugins/windshift/history — lets the dashboard seed its
     // chart after a page reload instead of starting empty
     router.get("/history", (req, res) => {
