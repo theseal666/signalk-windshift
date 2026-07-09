@@ -352,7 +352,6 @@ module.exports = function (app) {
       // no path configuration needed
       unsubscribes.push(
         app.streambundle.getSelfBus().forEach((pathValue) => {
-          const m = VIVA_RE.exec(pathValue.path);
           // Track speed/gust for all ViVa slugs (for history persistence)
           const ms = VIVA_SPEED_RE.exec(pathValue.path);
           if (ms && typeof pathValue.value === "number" && !isNaN(pathValue.value)) {
