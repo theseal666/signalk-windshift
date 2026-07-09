@@ -195,6 +195,14 @@ module.exports = function (app) {
     }
   };
 
+  plugin.registerWithRouter = function (router) {
+    // Served at /plugins/windshift/history — lets the dashboard seed its
+    // chart after a page reload instead of starting empty
+    router.get("/history", (req, res) => {
+      res.json(windshiftAnalysis.history());
+    });
+  };
+
   plugin.stop = function () {
     unsubscribes.forEach((f) => f());
     unsubscribes = [];

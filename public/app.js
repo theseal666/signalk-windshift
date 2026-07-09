@@ -192,5 +192,24 @@ function updateChart(timestamp) {
     if (uplot) uplot.setData(chartData);
 }
 
+// Seed the chart from the plugin's server-side history so a page reload
+// doesn't start from an empty chart
+function loadHistory() {
+    return fetch("/plugins/windshift/history")
+        .then(r => (r.ok ? r.json() : []))
+        .catch(() => [])
+        .then(hist => {
+            // The chart caps itself at 1800 points, so seed at most that many
+            hist.slice(-1700).forEach(p => {
+                chartData[0].push(p.t / 1000);
+                chartData[1].push(null); // raw samples are not kept server-side
+                chartData[2].push(unwrapForChart(chartData[2], p.avg));
+                chartData[3].push(unwrapForChart(chartData[3], p.min));
+                chartData[4].push(unwrapForChart(chartData[4], p.max));
+            });
+            if (uplot) uplot.setData(chartData);
+        });
+}
+
 initChart();
-connectSK();
+loadHistory().then(connectSK);

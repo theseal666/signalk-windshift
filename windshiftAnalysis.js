@@ -28,6 +28,11 @@ var starboardMeans = [];
 var portMeans = [];
 var calibrationOffset = 0; // half the port/starboard difference, radians
 
+// Rolling history of emitted metrics so the dashboard can seed its chart
+// after a page reload instead of starting empty
+var metricsHistory = [];
+const HISTORY_MAX_AGE_S = 24 * 3600;
+
 const DEFAULT_AVG_BUFFER = 10; //seconds
 let buffer_timeout_s = DEFAULT_AVG_BUFFER;
 
@@ -186,6 +191,8 @@ function detectShifts(time, u) {
 const windshiftAnalysis = {
   logger: (logger) => (debuglogger = logger),
 
+  history: () => metricsHistory,
+
   config: (config) => {
     debug("incoming config: " + JSON.stringify(config));
     buffer_timeout_s = config.buffer_timeout_s || DEFAULT_AVG_BUFFER;
@@ -220,6 +227,7 @@ const windshiftAnalysis = {
     starboardMeans = [];
     portMeans = [];
     calibrationOffset = 0;
+    metricsHistory = [];
   },
 
   setHeading: (heading) => {
@@ -306,6 +314,11 @@ const windshiftAnalysis = {
     const diff_array = corrected.map((v) => normalize(v - offsetRef));
     const min = offsetRef + Math.min(...diff_array);
     const max = offsetRef + Math.max(...diff_array);
+
+    metricsHistory.push({ t: timestamp, avg: current, min, max });
+    metricsHistory = metricsHistory.filter(
+      (p) => timestamp - p.t < HISTORY_MAX_AGE_S * 1000
+    );
 
     if (update) {
       update({
