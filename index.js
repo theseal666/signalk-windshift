@@ -18,6 +18,7 @@ module.exports = function (app) {
   var persistTimer = null;
   var persistedHistory = {};
   var boatTwdSourcePath = "environment.wind.directionTrue"; // kept for /sources
+  var latestSourceSpeed = new Map(); // sourceId -> { speed, gust } in m/s
 
   const PERSIST_INTERVAL_MS = 5 * 60 * 1000;
 
@@ -67,6 +68,7 @@ module.exports = function (app) {
 
   const BOAT_PREFIX = "environment.wind.windshift.";
   const VIVA_RE = /^environment\.observations\.viva\.([^.]+)\.(wind\.directionTrue|distance)$/;
+  const VIVA_SPEED_RE = /^environment\.observations\.viva\.([^.]+)\.wind\.(averageSpeed|gust)$/;
 
   const stationPrefix = (slug) => `environment.observations.viva.${slug}.windshift.`;
 
@@ -177,6 +179,22 @@ module.exports = function (app) {
   function emitMetrics(sourceId, prefix, metrics) {
     pointCounts[sourceId] = (pointCounts[sourceId] || 0) + 1;
     updateStatus();
+
+    // Tag the just-pushed history record with current speed/gust so that
+    // both the /history endpoint and disk persistence carry wind data.
+    const spd = latestSourceSpeed.get(sourceId);
+    if (spd) {
+      const analyzer = sourceId === "boat" ? boatAnalyzer : (stations.get(sourceId) || {}).analyzer;
+      if (analyzer) {
+        const hist = analyzer.history();
+        if (hist.length > 0) {
+          const last = hist[hist.length - 1];
+          if (spd.speed != null) last.speed = spd.speed;
+          if (spd.gust != null) last.gust = spd.gust;
+        }
+      }
+    }
+
     app.handleMessage(plugin.id, {
       context: "vessels." + app.selfId,
       updates: [
@@ -291,6 +309,22 @@ module.exports = function (app) {
         })
     );
 
+    // Track boat wind speed/gust; follows twdSourcePath so soak-test mode
+    // (ViVa as TWD source) picks up the station's speed automatically
+    const boatSpeedGust = speedGustPaths(twdSourcePath);
+    [
+      [boatSpeedGust.speedPath, "speed"],
+      [boatSpeedGust.gustPath, "gust"],
+    ].forEach(([p, kind]) => {
+      unsubscribes.push(
+        app.streambundle.getSelfBus(p).forEach((pv) => {
+          if (typeof pv.value !== "number" || isNaN(pv.value)) return;
+          const cur = latestSourceSpeed.get("boat") || {};
+          latestSourceSpeed.set("boat", { ...cur, [kind]: pv.value });
+        })
+      );
+    });
+
     if (!ignoreManeuvers) {
       unsubscribes.push(
         app.streambundle
@@ -318,6 +352,16 @@ module.exports = function (app) {
       // no path configuration needed
       unsubscribes.push(
         app.streambundle.getSelfBus().forEach((pathValue) => {
+          const m = VIVA_RE.exec(pathValue.path);
+          // Track speed/gust for all ViVa slugs (for history persistence)
+          const ms = VIVA_SPEED_RE.exec(pathValue.path);
+          if (ms && typeof pathValue.value === "number" && !isNaN(pathValue.value)) {
+            const spSlug = ms[1];
+            const kind = ms[2] === "averageSpeed" ? "speed" : "gust";
+            const cur = latestSourceSpeed.get(spSlug) || {};
+            latestSourceSpeed.set(spSlug, { ...cur, [kind]: pathValue.value });
+          }
+
           const m = VIVA_RE.exec(pathValue.path);
           if (!m) return;
           const slug = m[1];
@@ -408,6 +452,7 @@ module.exports = function (app) {
     boatAnalyzer = null;
     for (const [, s] of stations) s.analyzer.reset();
     stations.clear();
+    latestSourceSpeed.clear();
     app.debug("Plugin Windshift stopped");
   };
 

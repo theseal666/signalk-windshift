@@ -397,8 +397,8 @@ function loadHistory(src) {
             chartData[3].push(unwrapForChart(chartData[3], e.min != null ? e.min : null));
             chartData[4].push(unwrapForChart(chartData[4], e.max != null ? e.max : null));
             chartData[5].push(unwrapForChart(chartData[5], e.boat != null ? e.boat : null));
-            chartData[6].push(null); // wind speed not kept in server-side history
-            chartData[7].push(null); // gust not kept in server-side history
+            chartData[6].push(e.speed != null ? e.speed : null);
+            chartData[7].push(e.gust != null ? e.gust : null);
         });
         if (uplot) uplot.setData(chartData);
     });
