@@ -158,6 +158,22 @@ main {
     font-weight: bold;
 }
 
+#gradient-alert {
+    padding: 8px 20px;
+    background: #b71c1c;
+    color: #fff;
+    font-weight: bold;
+    font-size: 0.95rem;
+    text-align: center;
+    letter-spacing: 0.04em;
+    animation: gradient-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes gradient-pulse {
+    0%, 100% { background: #b71c1c; }
+    50%       { background: #e53935; }
+}
+
 .u-legend {
     color: #eee !important;
 }

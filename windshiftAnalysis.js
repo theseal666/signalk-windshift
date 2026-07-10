@@ -52,6 +52,14 @@ function createAnalyzer() {
   var meanDrift1h    = 0;   // net circular drift over last hour, degrees
   var regime         = "unknown"; // "oscillating" | "drifting" | "mixed" | "unknown"
 
+  // Rapid gradient shift detector: compares last 5-min mean to prior 5–25-min mean
+  var gradientDetected = false; // true when a sudden persistent shift is active
+  var rapidShiftDeg    = 0;    // magnitude and sign of the detected shift (degrees)
+  var speedCorrelated  = false; // true when a ≥20% speed increase accompanies the shift
+
+  // Rolling speed history fed by appendWindSpeed(); kept 30 min
+  var speedHistory = []; // { t: ms, v: m/s }
+
   // Zigzag shift detector state
   var swingDir = 0; // 1 = veering, -1 = backing, 0 = not yet determined
   var candVal = null; // running extreme of the current swing (unwrapped)
@@ -208,6 +216,59 @@ function createAnalyzer() {
     else                             regime = "unknown";
   }
 
+  // Rapid gradient shift: compare circular mean of last 5 min ("recent") against
+  // the prior 5–25 min ("baseline"). A sustained divergence ≥ RAPID_SHIFT_DEG
+  // that doesn't reverse is a gradient/frontal event, not a cyclic oscillation.
+  // Hysteresis: once detected, require the gap to drop below half the threshold
+  // before clearing, so a noisy edge doesn't flicker the flag.
+  const RAPID_SHIFT_DEG = 10;
+
+  function detectRapidShift(now) {
+    const fiveMinAgo    = now - 5  * 60 * 1000;
+    const twentyFiveAgo = now - 25 * 60 * 1000;
+
+    const recentPts   = metricsHistory.filter((p) => p.t >= fiveMinAgo);
+    const baselinePts = metricsHistory.filter((p) => p.t >= twentyFiveAgo && p.t < fiveMinAgo);
+
+    if (recentPts.length < 2 || baselinePts.length < 2) {
+      rapidShiftDeg    = 0;
+      gradientDetected = false;
+      return;
+    }
+
+    const recentMean   = circularMean(recentPts.map((p) => p.avg));
+    const baselineMean = circularMean(baselinePts.map((p) => p.avg));
+    const diff = normalize(recentMean - baselineMean) * 180 / Math.PI;
+
+    rapidShiftDeg = diff;
+    const abs = Math.abs(diff);
+
+    if (!gradientDetected) {
+      gradientDetected = abs >= RAPID_SHIFT_DEG;
+    } else {
+      // Hysteresis: clear only when gap drops below half the threshold
+      gradientDetected = abs >= RAPID_SHIFT_DEG / 2;
+    }
+  }
+
+  // Speed correlation: a ≥20% mean speed increase in the last 5 min versus the
+  // prior 15 min is a strong additional indicator that the incoming event is a
+  // squall or frontal shift rather than a thermal oscillation.
+  function computeSpeedCorrelation(now) {
+    const fiveMinAgo    = now - 5  * 60 * 1000;
+    const twentyMinAgo  = now - 20 * 60 * 1000;
+
+    const recent   = speedHistory.filter((p) => p.t >= fiveMinAgo);
+    const baseline = speedHistory.filter((p) => p.t >= twentyMinAgo && p.t < fiveMinAgo);
+
+    if (recent.length < 3 || baseline.length < 3) { speedCorrelated = false; return; }
+
+    const avgRecent   = recent.reduce((a, p) => a + p.v, 0) / recent.length;
+    const avgBaseline = baseline.reduce((a, p) => a + p.v, 0) / baseline.length;
+
+    speedCorrelated = avgBaseline > 0.1 && avgRecent > avgBaseline * 1.2;
+  }
+
   // Zigzag detector on the unwrapped TWD: an extreme only counts as a shift
   // once the wind has come back by at least shiftThreshold, so wiggles below
   // the threshold never register as peaks or troughs.
@@ -269,6 +330,14 @@ function createAnalyzer() {
       troughs: troughs.map((t) => ({ time: t.time, value: t.value })),
     }),
 
+    // Called by index.js whenever a new wind speed reading arrives for this source.
+    appendWindSpeed: (speed, timestamp) => {
+      const t = Date.parse(timestamp) || Date.now();
+      speedHistory.push({ t, v: speed });
+      const cutoff = Date.now() - 30 * 60 * 1000;
+      speedHistory = speedHistory.filter((p) => p.t > cutoff);
+    },
+
     // Preload persisted history (e.g. from disk after a server restart)
     seedHistory: (points) => {
       if (!Array.isArray(points)) return;
@@ -306,6 +375,10 @@ function createAnalyzer() {
       gradientRate3h = 0;
       meanDrift1h = 0;
       regime = "unknown";
+      gradientDetected = false;
+      rapidShiftDeg = 0;
+      speedCorrelated = false;
+      speedHistory = [];
       currentTack = null;
       lastHeading = null;
       isSettled = true;
@@ -411,6 +484,8 @@ function createAnalyzer() {
       );
 
       computeGradientMetrics(timestamp);
+      detectRapidShift(timestamp);
+      computeSpeedCorrelation(timestamp);
 
       lastMetrics = {
         timestamp: timestamp_in,
@@ -424,10 +499,13 @@ function createAnalyzer() {
         trend,
         calibrationOffset,
         isSettled,
-        gradientRate,    // deg/hr
-        gradientRate3h,  // deg/hr
-        meanDrift1h,     // degrees
-        regime,          // string
+        gradientRate,      // deg/hr
+        gradientRate3h,    // deg/hr
+        meanDrift1h,       // degrees
+        regime,            // string
+        gradientDetected,  // boolean
+        rapidShiftDeg,     // degrees (+ veering, − backing)
+        speedCorrelated,   // boolean
       };
 
       if (update) {

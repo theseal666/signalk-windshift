@@ -271,6 +271,13 @@ function handleValue(path, value, timestamp) {
         // SK path is 0-3 integer → map to string
         const names = ["unknown", "oscillating", "drifting", "mixed"];
         showRegime(names[value] || "unknown", null);
+    } else if (metric === "gradientShift.detected") {
+        showGradientAlert(value === 1, lastRapidShiftDeg, lastSpeedCorrelated);
+    } else if (metric === "gradientShift.degrees") {
+        // rad → degrees
+        showGradientAlert(lastGradientDetected, value * 180 / Math.PI, lastSpeedCorrelated);
+    } else if (metric === "gradientShift.speedCorrelated") {
+        showGradientAlert(lastGradientDetected, lastRapidShiftDeg, value === 1);
     }
 }
 
@@ -294,6 +301,25 @@ function showTrend(value) {
 
 function showCyclePeriod(value) {
     document.querySelector("#cycle-period .value").innerText = (value / 60).toFixed(1) + "m";
+}
+
+// State for combining the three gradient-alert SK paths that arrive separately
+let lastGradientDetected = false;
+let lastRapidShiftDeg    = 0;
+let lastSpeedCorrelated  = false;
+
+function showGradientAlert(detected, deg, speedCorr) {
+    lastGradientDetected = detected;
+    lastRapidShiftDeg    = deg;
+    lastSpeedCorrelated  = speedCorr;
+    const el = document.getElementById("gradient-alert");
+    if (!detected) { el.style.display = "none"; return; }
+    const dir = deg > 0 ? "veering" : "backing";
+    const abs = Math.abs(deg).toFixed(0);
+    const extra = speedCorr ? " + wind increase" : "";
+    document.getElementById("gradient-alert-text").textContent =
+        `⚠ GRADIENT SHIFT: ${abs}° ${dir}${extra}`;
+    el.style.display = "block";
 }
 
 // gradientRate is in deg/hr (passed through directly from /latest JSON;
@@ -527,6 +553,7 @@ function loadLatest(src) {
             // gradientRate is deg/hr in lastMetrics JSON (no unit conversion needed here)
             showGradientRate(m.gradientRate);
             showRegime(m.regime, m.stationConsensus);
+            showGradientAlert(m.gradientDetected, m.rapidShiftDeg, m.speedCorrelated);
         });
 }
 
@@ -667,6 +694,7 @@ function resetView() {
     document.querySelector(".gauge-bar").style.width = "0%";
     showGradientRate(null);
     showRegime("unknown", null);
+    showGradientAlert(false, 0, false);
 }
 
 function switchSource(id) {

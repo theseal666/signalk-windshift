@@ -190,6 +190,33 @@ module.exports = function (app) {
         shortName: "Regime",
       },
     },
+    {
+      path: prefix + "gradientShift.detected",
+      value: {
+        units: "",
+        description: "1 when a sudden persistent wind shift ≥10° is detected (5-min vs prior 20-min mean)",
+        displayName: "Gradient shift detected",
+        shortName: "Gradient",
+      },
+    },
+    {
+      path: prefix + "gradientShift.degrees",
+      value: {
+        units: "rad",
+        description: "Magnitude and sign of the detected gradient shift (positive = veering)",
+        displayName: "Gradient shift magnitude",
+        shortName: "Shift mag",
+      },
+    },
+    {
+      path: prefix + "gradientShift.speedCorrelated",
+      value: {
+        units: "",
+        description: "1 when the gradient shift is accompanied by a ≥20% wind speed increase",
+        displayName: "Speed-correlated shift",
+        shortName: "Speed spike",
+      },
+    },
   ];
 
   var pointCounts = {}; // sourceId -> emitted analysis points
@@ -245,6 +272,9 @@ module.exports = function (app) {
               metrics.regime === "oscillating" ? 1 :
               metrics.regime === "drifting"    ? 2 :
               metrics.regime === "mixed"       ? 3 : 0 },
+            { path: prefix + "gradientShift.detected",      value: metrics.gradientDetected ? 1 : 0 },
+            { path: prefix + "gradientShift.degrees",       value: metrics.rapidShiftDeg * Math.PI / 180 },
+            { path: prefix + "gradientShift.speedCorrelated", value: metrics.speedCorrelated ? 1 : 0 },
           ],
         },
       ],
@@ -355,6 +385,8 @@ module.exports = function (app) {
           if (typeof pv.value !== "number" || isNaN(pv.value)) return;
           const cur = latestSourceSpeed.get("boat") || {};
           latestSourceSpeed.set("boat", { ...cur, [kind]: pv.value });
+          // Feed speed (not gust) into the analyzer for correlation detection
+          if (kind === "speed") boatAnalyzer.appendWindSpeed(pv.value, pv.timestamp);
         })
       );
     });
@@ -393,6 +425,13 @@ module.exports = function (app) {
             const kind = ms[2] === "averageSpeed" ? "speed" : "gust";
             const cur = latestSourceSpeed.get(spSlug) || {};
             latestSourceSpeed.set(spSlug, { ...cur, [kind]: pathValue.value });
+            // Feed averageSpeed into the station analyzer for correlation detection
+            if (kind === "speed") {
+              const stationForSpeed = stations.get(spSlug);
+              if (stationForSpeed) {
+                stationForSpeed.analyzer.appendWindSpeed(pathValue.value, pathValue.timestamp);
+              }
+            }
           }
 
           const m = VIVA_RE.exec(pathValue.path);
