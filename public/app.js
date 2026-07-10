@@ -264,6 +264,13 @@ function handleValue(path, value, timestamp) {
         showCertainty(value);
     } else if (metric === "timeToNextShift") {
         showNextShift(value);
+    } else if (metric === "gradientRate") {
+        // SK path is rad/s → convert to deg/hr for display
+        showGradientRate(value * 180 / Math.PI * 3600);
+    } else if (metric === "regime") {
+        // SK path is 0-3 integer → map to string
+        const names = ["unknown", "oscillating", "drifting", "mixed"];
+        showRegime(names[value] || "unknown", null);
     }
 }
 
@@ -287,6 +294,32 @@ function showTrend(value) {
 
 function showCyclePeriod(value) {
     document.querySelector("#cycle-period .value").innerText = (value / 60).toFixed(1) + "m";
+}
+
+// gradientRate is in deg/hr (passed through directly from /latest JSON;
+// from the live SK stream it arrives as rad/s and is converted before calling here).
+function showGradientRate(degPerHr) {
+    const el = document.querySelector("#gradient-rate .value");
+    if (degPerHr == null || isNaN(degPerHr)) { el.innerText = "--"; el.style.color = "#fff"; return; }
+    const abs = Math.abs(degPerHr);
+    const dir = degPerHr > 0.2 ? "↗" : degPerHr < -0.2 ? "↘" : "→";
+    el.innerText = `${dir} ${abs.toFixed(1)}°/h`;
+    // Colour: bright when drift is meaningful (>3°/h), white when negligible
+    el.style.color = abs > 5 ? (degPerHr > 0 ? "#4caf50" : "#f44336")
+                   : abs > 3 ? "#ff9800"
+                   : "#fff";
+}
+
+const REGIME_LABEL = { oscillating: "Oscillating", drifting: "Drifting", mixed: "Mixed", unknown: "?" };
+const REGIME_COLOR = { oscillating: "#4caf50", drifting: "#ff9800", mixed: "#00bcd4", unknown: "#666" };
+
+// consensus: 0.0–1.0 fraction of stations agreeing, or null
+function showRegime(r, consensus) {
+    const el = document.querySelector("#regime .value");
+    const label = REGIME_LABEL[r] || "?";
+    const suffix = consensus != null ? ` ${Math.round(consensus * 100)}%` : "";
+    el.innerText = label + suffix;
+    el.style.color = REGIME_COLOR[r] || "#666";
 }
 
 function showCertainty(value) {
@@ -491,6 +524,9 @@ function loadLatest(src) {
             showCyclePeriod(m.cyclePeriod);
             showCertainty(m.certainty);
             showNextShift(m.timeToNextShift);
+            // gradientRate is deg/hr in lastMetrics JSON (no unit conversion needed here)
+            showGradientRate(m.gradientRate);
+            showRegime(m.regime, m.stationConsensus);
         });
 }
 
@@ -629,6 +665,8 @@ function resetView() {
         el.style.color = "#fff";
     });
     document.querySelector(".gauge-bar").style.width = "0%";
+    showGradientRate(null);
+    showRegime("unknown", null);
 }
 
 function switchSource(id) {

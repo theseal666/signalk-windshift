@@ -6,7 +6,7 @@
     <title>Windshift Dashboard</title>
     <!-- Version query strings force browsers to refetch matching assets after
          every release instead of mixing cached JS with fresh HTML -->
-    <link rel="stylesheet" href="style.css?v=0.3.5">
+    <link rel="stylesheet" href="style.css?v=0.4.0">
     <link rel="stylesheet" href="https://unpkg.com/uplot/dist/uPlot.min.css">
 </head>
 <body>
@@ -46,6 +46,14 @@
                     <div class="gauge-bar" style="width: 0%"></div>
                 </div>
             </div>
+            <div class="metric" id="gradient-rate">
+                <label>Drift</label>
+                <span class="value">--</span>
+            </div>
+            <div class="metric" id="regime">
+                <label>Regime</label>
+                <span class="value">--</span>
+            </div>
         </header>
         <div class="controls-bar">
             <div class="control-group">
@@ -75,6 +83,6 @@
         </main>
     </div>
     <script src="https://unpkg.com/uplot/dist/uPlot.iife.min.js"></script>
-    <script src="app.js?v=0.3.5"></script>
+    <script src="app.js?v=0.4.0"></script>
 </body>
 </html>

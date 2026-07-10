@@ -46,6 +46,12 @@ function createAnalyzer() {
   var metricsHistory = [];
   var lastMetrics = null;
 
+  // Gradient (persistent) shift detection state
+  var gradientRate   = 0;   // deg/hr from 1-h regression (+ = veering)
+  var gradientRate3h = 0;   // deg/hr from 3-h regression
+  var meanDrift1h    = 0;   // net circular drift over last hour, degrees
+  var regime         = "unknown"; // "oscillating" | "drifting" | "mixed" | "unknown"
+
   // Zigzag shift detector state
   var swingDir = 0; // 1 = veering, -1 = backing, 0 = not yet determined
   var candVal = null; // running extreme of the current swing (unwrapped)
@@ -142,6 +148,66 @@ function createAnalyzer() {
     troughs = troughs.filter((p) => now - p.time < maxAge_ms);
   }
 
+  // Least-squares slope of re-unwrapped metricsHistory slice.
+  // Returns deg/hr, or null when there are fewer than 3 points.
+  function linearSlopeDegPerHr(points) {
+    if (points.length < 3) return null;
+    const t0 = points[0].t;
+    // Re-unwrap: metricsHistory stores wrapped [0, 2π) averages.
+    const unwrapped = [points[0].avg * 180 / Math.PI];
+    for (let i = 1; i < points.length; i++) {
+      const diff = normalize(points[i].avg - points[i - 1].avg) * 180 / Math.PI;
+      unwrapped.push(unwrapped[i - 1] + diff);
+    }
+    const n = points.length;
+    let sx = 0, sy = 0;
+    for (let i = 0; i < n; i++) {
+      sx += (points[i].t - t0) / 3600000;
+      sy += unwrapped[i];
+    }
+    const mx = sx / n, my = sy / n;
+    let num = 0, den = 0;
+    for (let i = 0; i < n; i++) {
+      const x = (points[i].t - t0) / 3600000 - mx;
+      num += x * (unwrapped[i] - my);
+      den += x * x;
+    }
+    return den < 1e-9 ? null : num / den; // deg/hr
+  }
+
+  function computeGradientMetrics(now) {
+    const oneHourAgo    = now - 3600 * 1000;
+    const threeHoursAgo = now - 3 * 3600 * 1000;
+
+    const pts1h = metricsHistory.filter((p) => p.t >= oneHourAgo);
+    const pts3h = metricsHistory.filter((p) => p.t >= threeHoursAgo);
+
+    const s1 = linearSlopeDegPerHr(pts1h);
+    const s3 = linearSlopeDegPerHr(pts3h);
+    gradientRate   = s1 != null ? s1 : 0;
+    gradientRate3h = s3 != null ? s3 : 0;
+
+    // Net circular drift over the past hour (degrees)
+    if (pts1h.length >= 2) {
+      meanDrift1h =
+        normalize(pts1h[pts1h.length - 1].avg - pts1h[0].avg) * 180 / Math.PI;
+    } else {
+      meanDrift1h = 0;
+    }
+
+    // Regime: combine oscillation quality with gradient strength.
+    // A gradient shift is flagged when the 1-h slope exceeds 5 °/hr OR the
+    // net 1-h drift exceeds 8° (a front can clock the wind faster than the
+    // slope alone would suggest).
+    const isDrifting    = Math.abs(gradientRate) > 5 || Math.abs(meanDrift1h) > 8;
+    const isOscillating = certainty > 0.5 && cyclePeriod > 0;
+
+    if (isOscillating && isDrifting) regime = "mixed";
+    else if (isOscillating)          regime = "oscillating";
+    else if (isDrifting)             regime = "drifting";
+    else                             regime = "unknown";
+  }
+
   // Zigzag detector on the unwrapped TWD: an extreme only counts as a shift
   // once the wind has come back by at least shiftThreshold, so wiggles below
   // the threshold never register as peaks or troughs.
@@ -236,6 +302,10 @@ function createAnalyzer() {
       swingDir = 0;
       candVal = null;
       candTime = null;
+      gradientRate = 0;
+      gradientRate3h = 0;
+      meanDrift1h = 0;
+      regime = "unknown";
       currentTack = null;
       lastHeading = null;
       isSettled = true;
@@ -340,6 +410,8 @@ function createAnalyzer() {
         (p) => timestamp - p.t < HISTORY_MAX_AGE_S * 1000
       );
 
+      computeGradientMetrics(timestamp);
+
       lastMetrics = {
         timestamp: timestamp_in,
         maxTWD: max,
@@ -352,6 +424,10 @@ function createAnalyzer() {
         trend,
         calibrationOffset,
         isSettled,
+        gradientRate,    // deg/hr
+        gradientRate3h,  // deg/hr
+        meanDrift1h,     // degrees
+        regime,          // string
       };
 
       if (update) {

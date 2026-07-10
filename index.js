@@ -163,6 +163,33 @@ module.exports = function (app) {
         shortName: "Settled",
       },
     },
+    {
+      path: prefix + "gradientRate",
+      value: {
+        units: "rad/s",
+        description: "Rate of change of mean TWD over the last hour (positive = veering)",
+        displayName: "Gradient wind rate",
+        shortName: "Gradient rate",
+      },
+    },
+    {
+      path: prefix + "meanDrift1h",
+      value: {
+        units: "rad",
+        description: "Net circular drift of mean TWD over the last hour",
+        displayName: "Mean drift 1 h",
+        shortName: "Drift 1h",
+      },
+    },
+    {
+      path: prefix + "regime",
+      value: {
+        units: "",
+        description: "Wind shift regime: 0=unknown, 1=oscillating, 2=drifting, 3=mixed",
+        displayName: "Wind regime",
+        shortName: "Regime",
+      },
+    },
   ];
 
   var pointCounts = {}; // sourceId -> emitted analysis points
@@ -211,6 +238,13 @@ module.exports = function (app) {
             { path: prefix + "trend", value: metrics.trend },
             { path: prefix + "calibrationOffset", value: metrics.calibrationOffset },
             { path: prefix + "isSettled", value: metrics.isSettled ? 1 : 0 },
+            // Gradient metrics: convert internal deg/hr and deg to SI (rad/s and rad)
+            { path: prefix + "gradientRate", value: metrics.gradientRate * Math.PI / (180 * 3600) },
+            { path: prefix + "meanDrift1h",  value: metrics.meanDrift1h  * Math.PI / 180 },
+            { path: prefix + "regime", value:
+              metrics.regime === "oscillating" ? 1 :
+              metrics.regime === "drifting"    ? 2 :
+              metrics.regime === "mixed"       ? 3 : 0 },
           ],
         },
       ],
@@ -398,6 +432,21 @@ module.exports = function (app) {
     return { speedPath: "environment.wind.speedTrue", gustPath: "environment.wind.gust" };
   }
 
+  // Fraction of active stations whose 1-h gradient rate agrees in sign with
+  // the boat — 1.0 = all stations veering/backing the same way = synoptic signal.
+  function computeConsensus(boatRate) {
+    const active = [...stations.values()].filter((s) => s.active);
+    if (active.length === 0) return null;
+    const boatSign = Math.sign(boatRate);
+    if (boatSign === 0) return null;
+    let agree = 0;
+    for (const s of active) {
+      const m = s.analyzer.latest();
+      if (m && Math.sign(m.gradientRate) === boatSign) agree++;
+    }
+    return agree / active.length;
+  }
+
   plugin.registerWithRouter = function (router) {
     // Sources for the dashboard dropdown: the boat plus active stations.
     // speedPath/gustPath let the dashboard subscribe to the right paths
@@ -420,14 +469,18 @@ module.exports = function (app) {
     // for the next live update
     router.get("/latest", (req, res) => {
       const src = req.query.source;
-      const analyzer =
-        !src || src === "boat"
-          ? boatAnalyzer
-          : (stations.get(src) || {}).analyzer;
+      const isBoat = !src || src === "boat";
+      const analyzer = isBoat
+        ? boatAnalyzer
+        : (stations.get(src) || {}).analyzer;
       if (!analyzer) return res.json(null);
       const metrics = analyzer.latest();
       const { peaks, troughs } = analyzer.shifts();
-      res.json(metrics ? { ...metrics, peaks, troughs } : null);
+      // Station consensus is only meaningful from the boat's perspective
+      const stationConsensus = isBoat && metrics
+        ? computeConsensus(metrics.gradientRate)
+        : null;
+      res.json(metrics ? { ...metrics, peaks, troughs, stationConsensus } : null);
     });
 
     // Served at /plugins/windshift/history — lets the dashboard seed its
