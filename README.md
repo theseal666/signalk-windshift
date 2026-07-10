@@ -94,6 +94,39 @@ the shifts, genuine oscillation shows up as a port/starboard difference and
 gets partially calibrated away — leave this off unless you suspect sensor
 misalignment.
 
+### Gradient and persistent shift detection
+
+Not all shifts are oscillations. A cold front, developing sea breeze, or
+gradient wind change moves the mean TWD in one direction and keeps it there.
+The plugin detects these at two timescales:
+
+**Long-period regression** (1 h and 3 h windows): a circular linear regression
+on `metricsHistory` gives a `gradientRate` in °/hr. The 3 h window is more
+robust against oscillation noise; the 1 h window reacts faster. A net
+`meanDrift1h` value (how far the mean has actually moved in the last hour,
+regardless of the regression slope) catches fast frontal passages that the
+slope alone might understate.
+
+**Rapid shift detector** (5 min vs prior 20 min): compares the circular mean
+of the last 5 minutes to the baseline of the 5–25 minutes before that.
+When they diverge by ≥ 10° the `gradientShift.detected` flag fires.
+Hysteresis prevents flickering at the edge — once triggered, it clears only
+when the gap drops below 5°.
+
+**Speed correlation**: each analyzer maintains a 30-minute rolling speed
+history (`appendWindSpeed`). When a detected gradient shift is simultaneously
+accompanied by a ≥ 20% increase in 5-min mean speed relative to the prior
+15-min mean, `gradientShift.speedCorrelated` fires — the classic signature of
+a squall line or frontal passage ("looks like a cyclic shift but bigger, with
+more wind").
+
+**Regime classification** (`regime` path): combines oscillation quality
+(`certainty`) with gradient strength to report "oscillating", "drifting",
+"mixed" (oscillations riding a drifting mean — the tactically hardest case),
+or "unknown". Multi-station `stationConsensus` (fraction of active ViVa
+stations agreeing on gradient direction) distinguishes synoptic events from
+local terrain effects.
+
 ### Multi-station tracking
 
 With [signalk-viva](https://github.com/theseal666/signalk-viva-plugin)
@@ -133,6 +166,16 @@ makes it easy to see whether the current shift is tracking the same shape and
 amplitude as the last few — useful for building confidence before committing
 to a tack. Click **Off** to return to the normal waterfall.
 
+**Gradient metrics** in the header: a **Drift** readout shows the 1-hour
+gradient rate as `↗ 8.1°/h` (veering) or `↘ 5.3°/h` (backing), coloured
+white when negligible, orange above 3°/h, and green/red above 5°/h. A
+**Regime** badge shows "Oscillating", "Drifting", or "Mixed" with a station
+consensus percentage when multiple stations are active.
+
+When a rapid gradient shift is detected, a **pulsing red alert banner** appears
+below the controls bar: `⚠ GRADIENT SHIFT: 18° veering + wind increase`.
+It clears automatically when the shift settles (gap back below 5°).
+
 The "Avg Wind" header value is a 2-minute rolling average of received wind
 speed samples, smoothing out short-term noise. Gust is the instrument's own
 reported gust value — for ViVa shore stations this maps to *Byvind*; for the
@@ -142,33 +185,35 @@ instrument configuration.
 ## Current state (July 2026)
 
 **Branches:**
-- `main` — v0.0.6: single-source analysis, stable.
-- `feature/multi-station` — v0.3.5: everything described above; soak test
-  running on the Pi. Will be merged to main after the soak test completes.
+| Branch | Version | Status |
+| :--- | :--- | :--- |
+| `main` | v0.0.6 | Stable, single-source original |
+| `feature/multi-station` | v0.3.5 | Multi-station, soak test complete, merge pending |
+| `feature/gradient-detection` | v0.4.0 | Gradient detection — **currently running on Pi** |
 
-**Live soak test:** the plugin currently runs 24/7 on a Raspberry Pi,
-analyzing the Vinga lighthouse TWD as its "boat" source (the boat is at the
-mooring, so shore data stands in for the masthead) plus the five nearest
-ViVa stations on the Bohuslän coast, polled every 30 s. Cycle detection
-locks onto real oscillations within the hour, and the certainty score
-correctly stays low in irregular morning breeze.
+**Live soak test:** the plugin runs 24/7 on a Raspberry Pi (KarukeraPi),
+analyzing the Vinga lighthouse TWD as the "boat" source plus the five nearest
+ViVa stations on the Bohuslän coast. Cycle detection locks in within ~1 h on
+oscillating days; certainty correctly stays low in messy morning gradient.
+The gradient detector is accumulating real-world data — waiting for a frontal
+passage to validate the rapid-shift and speed-correlation triggers.
 
-**Persistence:** each source's 24 h metrics history is saved to disk (the
-plugin data directory, `windshift-history.json`) every 5 minutes and on
-shutdown, and restored on startup — so the waterfall survives server
-restarts. Deeper analyzer state (cycle statistics, calibration) is
-deliberately not persisted; it rebuilds from live data within ~half an hour.
+**Persistence:** 24 h metrics history per source, saved every 5 min and on
+shutdown, restored on startup. The waterfall chart survives server restarts.
+Analyzer state (cycles, calibration, gradient history) rebuilds from live
+data within ~30 min.
 
-**Known limitations / roadmap:**
-- Cycle metrics need a few completed ≥4° swings before they wake up —
-  expect zeros for the first half hour in light or steady air, and after
-  a server restart.
-- The dashboard's grey "Raw" line only draws for sources that publish a raw
-  TWD stream (stations do; the boat does when its instruments are live).
+**Known limitations:**
+- Cycle metrics need a few completed ≥4° swings — expect zeros for the
+  first ~30 min after a restart or in very light, steady air.
+- The grey "Raw" line only draws when the source publishes raw TWD in real
+  time (stations do; the boat does when instruments are live).
+- Gradient thresholds (10° rapid-shift, 20% speed spike) are hard-coded
+  — they will become config options once real-world data shows tuning needs.
 - Not yet published to npm (install from GitHub, see below).
-- Next up: forecast verification as a fully independent companion plugin
-  ([signalk-forecast-skill](https://github.com/theseal666/signalk-forecast-skill)) —
-  scoring weather models against these observations.
+
+**Roadmap:** see [PLAN.md](PLAN.md) for the full milestone history and
+upcoming work (upwind early warning, npm publish, forecast overlay).
 
 ## Screenshots
 
@@ -195,27 +240,38 @@ at the top shows live per-source analysis point counts.*
 
 ## SignalK Paths
 
-Boat analysis (always on):
+All paths are emitted for the boat and (where applicable) for each active
+ViVa station. Boat prefix: `environment.wind.windshift.*`. Station prefix:
+`environment.observations.viva.<slug>.windshift.*`.
+
+### Cyclic shift (oscillation)
 
 | Path | Description | Unit |
 | :--- | :--- | :--- |
-| `environment.wind.windshift.avg` | Smoothed True Wind Direction | rad |
-| `environment.wind.windshift.min` | Minimum TWD in the tracking period | rad |
-| `environment.wind.windshift.max` | Maximum TWD in the tracking period | rad |
-| `environment.wind.windshift.delta` | Spread between max and min | rad |
-| `environment.wind.windshift.cyclePeriod` | Average time between wind shifts (full cycle) | s |
-| `environment.wind.windshift.timeToNextShift` | Estimated time to next predicted shift | s |
-| `environment.wind.windshift.certainty` | Confidence score (0.0 - 1.0) | - |
-| `environment.wind.windshift.trend` | 1 (Veering), -1 (Backing), 0 (Steady) | - |
-| `environment.wind.windshift.calibrationOffset` | Half the measured port/starboard difference | rad |
-| `environment.wind.windshift.isSettled` | 1 if boat is settled, 0 during tack lockout | - |
+| `…windshift.avg` | Smoothed (averaged) True Wind Direction | rad |
+| `…windshift.min` | Minimum TWD in the tracking period | rad |
+| `…windshift.max` | Maximum TWD in the tracking period | rad |
+| `…windshift.delta` | Cyclic shift amplitude (max − min) | rad |
+| `…windshift.cyclePeriod` | Average time between wind shifts (full cycle) | s |
+| `…windshift.timeToNextShift` | Estimated time to next predicted shift | s |
+| `…windshift.certainty` | Oscillation confidence score (0.0–1.0) | - |
+| `…windshift.trend` | Short-term direction: 1 veering, −1 backing, 0 steady | - |
+| `…windshift.calibrationOffset` | Half the port/starboard tack asymmetry | rad |
+| `…windshift.isSettled` | 1 if boat is settled, 0 during tack lockout | - |
 
-Station analysis (when Track ViVa Stations > 0): the same metrics under
-`environment.observations.viva.<station>.windshift.*`.
+### Gradient / persistent shift
 
-Note: `min` and `max` are kept continuous with the tracking window (they may
-fall slightly outside 0–2π when the wind straddles north) so charting tools
-can draw them without wrap artifacts.
+| Path | Description | Unit |
+| :--- | :--- | :--- |
+| `…windshift.gradientRate` | Rate of change of mean TWD over last 1 h (+ veering) | rad/s |
+| `…windshift.meanDrift1h` | Net circular drift of mean TWD over last 1 h | rad |
+| `…windshift.regime` | 0 unknown, 1 oscillating, 2 drifting, 3 mixed | - |
+| `…windshift.gradientShift.detected` | 1 when a sudden persistent shift ≥ 10° is active | - |
+| `…windshift.gradientShift.degrees` | Magnitude and sign of the detected shift (+ veering) | rad |
+| `…windshift.gradientShift.speedCorrelated` | 1 when a ≥ 20% speed increase accompanies the shift | - |
+
+Note: `min`, `max`, and `meanDrift1h` are kept continuous through the 0°/360°
+boundary so charting tools can draw them without wrap artifacts.
 
 ## Configuration
 
@@ -255,15 +311,25 @@ Served by the plugin (require a logged-in session):
 
 ## Installation
 
-Multi-station version (this branch):
+Latest (gradient detection, currently on the Pi):
 
 ```bash
 cd ~/.signalk
-npm install "https://github.com/theseal666/signalk-windshift.git#feature/multi-station"
+npm install "https://github.com/theseal666/signalk-windshift.git#feature/gradient-detection"
 sudo systemctl restart signalk
 ```
 
-Stable single-source version: same command without the `#feature/multi-station`.
+Multi-station only (no gradient detection):
+
+```bash
+npm install "https://github.com/theseal666/signalk-windshift.git#feature/multi-station"
+```
+
+Stable single-source (original, no multi-station):
+
+```bash
+npm install "https://github.com/theseal666/signalk-windshift.git"
+```
 
 ## Accessing the Dashboard
 
@@ -271,5 +337,6 @@ Once the plugin is installed and started:
 `http://<your-signalk-ip>/@jwallinder/windshift`
 
 ---
-*Experimental and under active development — currently in a multi-day live
-soak test against Swedish west coast weather stations.*
+*Experimental and under active development — running a live 24/7 soak test
+against Swedish west coast weather stations (Vinga + 5 ViVa stations).
+See [PLAN.md](PLAN.md) for the full development history and roadmap.*
