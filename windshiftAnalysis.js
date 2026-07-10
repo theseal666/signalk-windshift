@@ -198,6 +198,11 @@ function createAnalyzer() {
 
     latest: () => lastMetrics,
 
+    shifts: () => ({
+      peaks: peaks.map((p) => ({ time: p.time, value: p.value })),
+      troughs: troughs.map((t) => ({ time: t.time, value: t.value })),
+    }),
+
     // Preload persisted history (e.g. from disk after a server restart)
     seedHistory: (points) => {
       if (!Array.isArray(points)) return;

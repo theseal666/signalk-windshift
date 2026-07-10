@@ -302,9 +302,179 @@ function showNextShift(value) {
 function resetZoom() {
     if (!uplot || chartData[0].length === 0) return;
     uplot.setScale("x", { min: chartData[0][0], max: chartData[0][chartData[0].length - 1] });
+    document.getElementById("reset-zoom").style.display = "none";
 }
 
 document.getElementById("reset-zoom").addEventListener("click", resetZoom);
+
+// ── Time window buttons ──────────────────────────────────────────────────────
+
+let selectedWindowHours = 0.5;
+
+function setTimeWindow(hours) {
+    selectedWindowHours = hours;
+    document.querySelectorAll(".window-btn").forEach(b => {
+        b.classList.toggle("active", parseFloat(b.dataset.hours) === hours);
+    });
+    if (!uplot || chartData[0].length === 0) return;
+    const now = Date.now() / 1000;
+    const min = Math.max(now - hours * 3600, chartData[0][0]);
+    uplot.setScale("x", { min, max: now });
+    document.getElementById("reset-zoom").style.display = "block";
+}
+
+document.querySelectorAll(".window-btn").forEach(btn => {
+    btn.addEventListener("click", () => setTimeWindow(parseFloat(btn.dataset.hours)));
+});
+
+// ── Shift overlay ────────────────────────────────────────────────────────────
+
+let overlayCount = 0;
+let overlayChart = null;
+
+const OVERLAY_COLORS = ["#555", "#888", "#aaa", "#ffb300", "#4caf50"];
+
+function setOverlayCount(n) {
+    overlayCount = n;
+    document.querySelectorAll(".overlay-btn").forEach(b => {
+        b.classList.toggle("active", parseInt(b.dataset.count) === n);
+    });
+    if (n === 0) {
+        hideOverlay();
+    } else {
+        showOverlay(n);
+    }
+}
+
+document.querySelectorAll(".overlay-btn").forEach(btn => {
+    btn.addEventListener("click", () => setOverlayCount(parseInt(btn.dataset.count)));
+});
+
+function hideOverlay() {
+    document.getElementById("chart-container").style.display = "";
+    document.getElementById("overlay-container").style.display = "none";
+    if (overlayChart) { overlayChart.destroy(); overlayChart = null; }
+}
+
+function showOverlay(n) {
+    fetch(`/plugins/windshift/latest?source=${encodeURIComponent(currentSource)}`)
+        .then(r => r.ok ? r.json() : null)
+        .catch(() => null)
+        .then(data => {
+            if (!data || !data.peaks || !data.troughs) return;
+            const overlayData = buildShiftOverlayData(data.peaks, data.troughs, n);
+            if (!overlayData) return;
+            renderOverlay(overlayData, n);
+        });
+}
+
+// Returns a normalized delta-degrees value from a radian difference,
+// keeping it within [-180, 180].
+function radDiff(a, b) {
+    let deg = (a - b) * 180 / Math.PI;
+    while (deg > 180) deg -= 360;
+    while (deg < -180) deg += 360;
+    return deg;
+}
+
+function buildShiftOverlayData(peaks, troughs, n) {
+    // Merge peaks and troughs into one sorted timeline of extremes.
+    // peaks/troughs times are in ms (from the server); chartData[0] is in seconds.
+    const extremes = [
+        ...peaks.map(p => ({ time_ms: p.time, type: "peak" })),
+        ...troughs.map(t => ({ time_ms: t.time, type: "trough" })),
+    ].sort((a, b) => a.time_ms - b.time_ms);
+
+    if (extremes.length < 2) return null;
+
+    // Take the last n+1 extremes, each consecutive pair = one shift half-cycle.
+    const recent = extremes.slice(-(n + 1));
+    const shifts = [];
+
+    for (let i = 0; i < recent.length - 1; i++) {
+        const start_s = recent[i].time_ms / 1000;
+        const end_s   = recent[i + 1].time_ms / 1000;
+        const dur_s   = end_s - start_s;
+        if (dur_s <= 0) continue;
+
+        // Slice chartData[2] (avg TWD, unwrapped radians) for this window.
+        const pts = [];
+        for (let j = 0; j < chartData[0].length; j++) {
+            const t = chartData[0][j];
+            if (t >= start_s && t <= end_s && chartData[2][j] != null) {
+                pts.push({ pct: (t - start_s) / dur_s * 100, avg: chartData[2][j] });
+            }
+        }
+        if (pts.length < 2) continue;
+
+        // Normalize y: delta degrees from the first point in this shift.
+        const base = pts[0].avg;
+        shifts.push(pts.map(p => ({ pct: p.pct, delta: radDiff(p.avg, base) })));
+    }
+
+    if (shifts.length === 0) return null;
+
+    // Build uPlot data: 101 evenly-spaced x points (0–100%) with nearest-match y.
+    const xs = Array.from({ length: 101 }, (_, i) => i);
+    const seriesData = shifts.map(shift =>
+        xs.map(pct => {
+            let best = null, bestDist = Infinity;
+            for (const p of shift) {
+                const d = Math.abs(p.pct - pct);
+                if (d < bestDist) { bestDist = d; best = p; }
+            }
+            return best && bestDist < 10 ? best.delta : null;
+        })
+    );
+
+    return [xs, ...seriesData];
+}
+
+function renderOverlay(data, n) {
+    document.getElementById("chart-container").style.display = "none";
+    const container = document.getElementById("overlay-container");
+    container.style.display = "";
+
+    if (overlayChart) { overlayChart.destroy(); overlayChart = null; }
+
+    const nShifts = data.length - 1;
+    const colorOffset = OVERLAY_COLORS.length - nShifts;
+    const series = [
+        { label: "% of shift" },
+        ...Array.from({ length: nShifts }, (_, i) => ({
+            label: i === nShifts - 1 ? "Latest" : `Shift -${nShifts - 1 - i}`,
+            stroke: OVERLAY_COLORS[Math.max(0, colorOffset + i)],
+            width: i === nShifts - 1 ? 3 : 1.5,
+            value: (u, v) => v == null ? "--" : (v > 0 ? "+" : "") + v.toFixed(1) + "°",
+            spanGaps: false,
+        })),
+    ];
+
+    const opts = {
+        title: "Shift overlay — Δ from shift start",
+        width: container.offsetWidth,
+        height: container.offsetHeight - 50,
+        scales: { x: { range: [0, 100] } },
+        series,
+        axes: [
+            { values: (self, ticks) => ticks.map(v => v.toFixed(0) + "%") },
+            {
+                grid: { show: true, stroke: "#333" },
+                ticks: { stroke: "#333" },
+                values: (self, ticks) => ticks.map(v => (v > 0 ? "+" : "") + v.toFixed(0) + "°"),
+            },
+        ],
+    };
+
+    overlayChart = new uPlot(opts, data, container);
+}
+
+window.addEventListener("resize", () => {
+    if (overlayChart) {
+        const container = document.getElementById("overlay-container");
+        overlayChart.setSize({ width: container.offsetWidth, height: container.offsetHeight - 50 });
+    }
+});
 
 // Fill the metrics bar from the plugin's latest snapshot so switching
 // sources gives a full overview immediately instead of waiting up to a
@@ -391,8 +561,7 @@ function loadHistory(src) {
             e.boat = p.avg;
             byTime.set(p.t, e);
         });
-        // The chart caps itself at 1800 points, so seed at most that many
-        const times = [...byTime.keys()].sort((a, b) => a - b).slice(-1700);
+        const times = [...byTime.keys()].sort((a, b) => a - b);
         times.forEach(t => {
             const e = byTime.get(t);
             chartData[0].push(t / 1000);
@@ -467,8 +636,9 @@ function switchSource(id) {
     resetView();
     // The boat reference line only makes sense next to something else
     if (uplot) uplot.setSeries(5, { show: id !== "boat" });
-    loadHistory(id);
-    loadLatest(id);
+    Promise.all([loadHistory(id), loadLatest(id)]).then(() => {
+        if (overlayCount > 0) showOverlay(overlayCount);
+    });
 }
 
 document.getElementById("source-select").addEventListener("change", (e) => switchSource(e.target.value));

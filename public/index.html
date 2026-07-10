@@ -6,7 +6,7 @@
     <title>Windshift Dashboard</title>
     <!-- Version query strings force browsers to refetch matching assets after
          every release instead of mixing cached JS with fresh HTML -->
-    <link rel="stylesheet" href="style.css?v=0.3.4">
+    <link rel="stylesheet" href="style.css?v=0.3.5">
     <link rel="stylesheet" href="https://unpkg.com/uplot/dist/uPlot.min.css">
 </head>
 <body>
@@ -47,12 +47,34 @@
                 </div>
             </div>
         </header>
+        <div class="controls-bar">
+            <div class="control-group">
+                <label>Window</label>
+                <div class="btn-group">
+                    <button class="window-btn active" data-hours="0.5">30m</button>
+                    <button class="window-btn" data-hours="1">1h</button>
+                    <button class="window-btn" data-hours="3">3h</button>
+                    <button class="window-btn" data-hours="6">6h</button>
+                    <button class="window-btn" data-hours="24">24h</button>
+                </div>
+            </div>
+            <div class="control-group">
+                <label>Shift overlay</label>
+                <div class="btn-group">
+                    <button class="overlay-btn active" data-count="0">Off</button>
+                    <button class="overlay-btn" data-count="2">Last 2</button>
+                    <button class="overlay-btn" data-count="3">Last 3</button>
+                    <button class="overlay-btn" data-count="5">Last 5</button>
+                </div>
+            </div>
+        </div>
         <main>
             <button id="reset-zoom" title="Double-click chart to reset">↩ Reset zoom</button>
             <div id="chart-container"></div>
+            <div id="overlay-container" style="display:none;"></div>
         </main>
     </div>
     <script src="https://unpkg.com/uplot/dist/uPlot.iife.min.js"></script>
-    <script src="app.js?v=0.3.4"></script>
+    <script src="app.js?v=0.3.5"></script>
 </body>
 </html>

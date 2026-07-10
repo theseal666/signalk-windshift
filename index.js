@@ -420,11 +420,14 @@ module.exports = function (app) {
     // for the next live update
     router.get("/latest", (req, res) => {
       const src = req.query.source;
-      if (!src || src === "boat") {
-        return res.json(boatAnalyzer ? boatAnalyzer.latest() : null);
-      }
-      const station = stations.get(src);
-      res.json(station ? station.analyzer.latest() : null);
+      const analyzer =
+        !src || src === "boat"
+          ? boatAnalyzer
+          : (stations.get(src) || {}).analyzer;
+      if (!analyzer) return res.json(null);
+      const metrics = analyzer.latest();
+      const { peaks, troughs } = analyzer.shifts();
+      res.json(metrics ? { ...metrics, peaks, troughs } : null);
     });
 
     // Served at /plugins/windshift/history — lets the dashboard seed its

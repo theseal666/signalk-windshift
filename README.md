@@ -120,6 +120,19 @@ are in compass degrees (direction) or knots (speed), and "minutes ago" on the
 time axis. **Drag** the chart to zoom in on a time window; **double-click**
 or press the "Reset zoom" button to return to the full view.
 
+**Time window buttons** (30m / 1h / 3h / 6h / 24h) let you zoom the x-axis
+to any historical window. The plugin keeps 24 h of metrics history on disk, so
+right after a page load you can step back a full day; as live data accumulates
+the older history gradually rolls off (a page reload restores it).
+
+**Shift overlay** (Last 2 / 3 / 5) replaces the waterfall with a comparison
+chart: each of the last N detected shift half-cycles is plotted on a common
+0–100% time axis, with Δ° from the shift start on the y-axis. The most recent
+shift is drawn bright green, older ones in progressively dimmer shades. This
+makes it easy to see whether the current shift is tracking the same shape and
+amplitude as the last few — useful for building confidence before committing
+to a tack. Click **Off** to return to the normal waterfall.
+
 The "Avg Wind" header value is a 2-minute rolling average of received wind
 speed samples, smoothing out short-term noise. Gust is the instrument's own
 reported gust value — for ViVa shore stations this maps to *Byvind*; for the
@@ -130,15 +143,15 @@ instrument configuration.
 
 **Branches:**
 - `main` — v0.0.6: single-source analysis, stable.
-- `feature/multi-station` — v0.3.0: everything described above; running on
-  the test boat now. Will be merged to main after the soak test.
+- `feature/multi-station` — v0.3.5: everything described above; soak test
+  running on the Pi. Will be merged to main after the soak test completes.
 
 **Live soak test:** the plugin currently runs 24/7 on a Raspberry Pi,
 analyzing the Vinga lighthouse TWD as its "boat" source (the boat is at the
 mooring, so shore data stands in for the masthead) plus the five nearest
-ViVa stations on the Bohuslän coast, polled every 30 s. First results:
-cycle detection locks onto real oscillations within the hour, and the
-certainty score correctly stays low in irregular morning breeze.
+ViVa stations on the Bohuslän coast, polled every 30 s. Cycle detection
+locks onto real oscillations within the hour, and the certainty score
+correctly stays low in irregular morning breeze.
 
 **Persistence:** each source's 24 h metrics history is saved to disk (the
 plugin data directory, `windshift-history.json`) every 5 minutes and on
@@ -236,7 +249,9 @@ Served by the plugin (require a logged-in session):
 
 - `/plugins/windshift/sources` — available sources for the dashboard dropdown
 - `/plugins/windshift/history?source=<id>` — 24 h metrics history per source
-- `/plugins/windshift/latest?source=<id>` — latest metrics snapshot per source
+- `/plugins/windshift/latest?source=<id>` — latest metrics snapshot per source,
+  including `peaks` and `troughs` arrays (ms timestamps of detected shift extremes)
+  used by the shift overlay
 
 ## Installation
 
