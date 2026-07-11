@@ -11,7 +11,7 @@
     "signalk-webapp"
   ],
   "signalk": {
-    "appIcon": "./IMG/Overview.png"
+    "appIcon": "icon.png"
   },
   "author": "Johan Wallinder",
   "license": "ISC",
