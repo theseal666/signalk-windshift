@@ -173,6 +173,15 @@ module.exports = function (app) {
       },
     },
     {
+      path: prefix + "gradientRate3h",
+      value: {
+        units: "rad/s",
+        description: "Rate of change of mean TWD over the last three hours (positive = veering)",
+        displayName: "Gradient wind rate 3h",
+        shortName: "Gradient 3h",
+      },
+    },
+    {
       path: prefix + "meanDrift1h",
       value: {
         units: "rad",
@@ -267,6 +276,7 @@ module.exports = function (app) {
             { path: prefix + "isSettled", value: metrics.isSettled ? 1 : 0 },
             // Gradient metrics: convert internal deg/hr and deg to SI (rad/s and rad)
             { path: prefix + "gradientRate", value: metrics.gradientRate * Math.PI / (180 * 3600) },
+            { path: prefix + "gradientRate3h", value: metrics.gradientRate3h * Math.PI / (180 * 3600) },
             { path: prefix + "meanDrift1h",  value: metrics.meanDrift1h  * Math.PI / 180 },
             { path: prefix + "regime", value:
               metrics.regime === "oscillating" ? 1 :

@@ -156,52 +156,87 @@ function createAnalyzer() {
     troughs = troughs.filter((p) => now - p.time < maxAge_ms);
   }
 
-  // Least-squares slope of re-unwrapped metricsHistory slice.
-  // Returns deg/hr, or null when there are fewer than 3 points.
-  function linearSlopeDegPerHr(points) {
-    if (points.length < 3) return null;
-    const t0 = points[0].t;
-    // Re-unwrap: metricsHistory stores wrapped [0, 2π) averages.
-    const unwrapped = [points[0].avg * 180 / Math.PI];
+  // Re-unwrap a metricsHistory slice into { t, y } with y in degrees on a
+  // continuous scale (metricsHistory stores wrapped [0, 2π) averages).
+  function unwrapDeg(points) {
+    if (points.length === 0) return [];
+    const out = [{ t: points[0].t, y: points[0].avg * 180 / Math.PI }];
     for (let i = 1; i < points.length; i++) {
       const diff = normalize(points[i].avg - points[i - 1].avg) * 180 / Math.PI;
-      unwrapped.push(unwrapped[i - 1] + diff);
+      out.push({ t: points[i].t, y: out[i - 1].y + diff });
     }
-    const n = points.length;
+    return out;
+  }
+
+  // Trailing boxcar mean over `periodMs`. Averaging over exactly one full
+  // oscillation period integrates the oscillation to ~zero regardless of
+  // phase, while leaving any linear drift untouched. A plain least-squares
+  // fit does NOT have this property: the slope of a raw sine over even a
+  // whole number of periods is biased by up to ~3·amplitude/π² per period.
+  function boxcarSmooth(series, periodMs) {
+    const out = [];
+    let j = 0;
+    for (let i = 0; i < series.length; i++) {
+      while (series[j].t < series[i].t - periodMs) j++;
+      // Only emit points whose trailing window is (nearly) fully populated
+      if (i > j && series[i].t - series[j].t >= 0.85 * periodMs) {
+        let sum = 0;
+        for (let k = j; k <= i; k++) sum += series[k].y;
+        out.push({ t: series[i].t, y: sum / (i - j + 1) });
+      }
+    }
+    return out;
+  }
+
+  // Least-squares slope of an { t, y } series in deg/hr, or null if too short.
+  function lsSlopeDegPerHr(series) {
+    const n = series.length;
+    if (n < 3) return null;
+    const t0 = series[0].t;
     let sx = 0, sy = 0;
     for (let i = 0; i < n; i++) {
-      sx += (points[i].t - t0) / 3600000;
-      sy += unwrapped[i];
+      sx += (series[i].t - t0) / 3600000;
+      sy += series[i].y;
     }
     const mx = sx / n, my = sy / n;
     let num = 0, den = 0;
     for (let i = 0; i < n; i++) {
-      const x = (points[i].t - t0) / 3600000 - mx;
-      num += x * (unwrapped[i] - my);
+      const x = (series[i].t - t0) / 3600000 - mx;
+      num += x * (series[i].y - my);
       den += x * x;
     }
     return den < 1e-9 ? null : num / den; // deg/hr
   }
 
+  // De-oscillated series for gradient work: smooth over one detected cycle
+  // when a credible cycle exists (so oscillations don't masquerade as drift),
+  // otherwise over 5 min just to suppress sample noise.
+  function gradientSeries(points, windowMs) {
+    const smoothMs =
+      certainty > 0.5 && cyclePeriod > 300 && cyclePeriod * 1000 < windowMs / 2
+        ? cyclePeriod * 1000
+        : 5 * 60 * 1000;
+    return boxcarSmooth(unwrapDeg(points), smoothMs);
+  }
+
   function computeGradientMetrics(now) {
-    const oneHourAgo    = now - 3600 * 1000;
-    const threeHoursAgo = now - 3 * 3600 * 1000;
+    const win1h = 3600 * 1000;
+    const win3h = 3 * 3600 * 1000;
 
-    const pts1h = metricsHistory.filter((p) => p.t >= oneHourAgo);
-    const pts3h = metricsHistory.filter((p) => p.t >= threeHoursAgo);
+    const s1series = gradientSeries(metricsHistory.filter((p) => p.t >= now - win1h), win1h);
+    const s3series = gradientSeries(metricsHistory.filter((p) => p.t >= now - win3h), win3h);
 
-    const s1 = linearSlopeDegPerHr(pts1h);
-    const s3 = linearSlopeDegPerHr(pts3h);
+    const s1 = lsSlopeDegPerHr(s1series);
+    const s3 = lsSlopeDegPerHr(s3series);
     gradientRate   = s1 != null ? s1 : 0;
     gradientRate3h = s3 != null ? s3 : 0;
 
-    // Net circular drift over the past hour (degrees)
-    if (pts1h.length >= 2) {
-      meanDrift1h =
-        normalize(pts1h[pts1h.length - 1].avg - pts1h[0].avg) * 180 / Math.PI;
-    } else {
-      meanDrift1h = 0;
-    }
+    // Net drift over the last hour: difference of the de-oscillated series
+    // endpoints. Each endpoint is a full-cycle (or 5-min) mean, so neither
+    // sample noise nor oscillation phase can masquerade as drift.
+    meanDrift1h = s1series.length >= 2
+      ? s1series[s1series.length - 1].y - s1series[0].y
+      : 0;
 
     // Regime: combine oscillation quality with gradient strength.
     // A gradient shift is flagged when the 1-h slope exceeds 5 °/hr OR the
@@ -224,11 +259,20 @@ function createAnalyzer() {
   const RAPID_SHIFT_DEG = 10;
 
   function detectRapidShift(now) {
-    const fiveMinAgo    = now - 5  * 60 * 1000;
-    const twentyFiveAgo = now - 25 * 60 * 1000;
+    // A slow oscillation dwells near its extremes for half a cycle, which a
+    // fixed 5-min recent window mistakes for a persistent level change. When
+    // a credible cycle exists, the divergence must persist for most of a
+    // cycle before it can count as a gradient event — by definition an
+    // oscillation would have swung back by then.
+    let recentMs = 5 * 60 * 1000;
+    if (certainty > 0.5 && cyclePeriod > 300) {
+      recentMs = Math.max(recentMs, 0.75 * cyclePeriod * 1000);
+    }
+    const recentStart   = now - recentMs;
+    const baselineStart = recentStart - 20 * 60 * 1000;
 
-    const recentPts   = metricsHistory.filter((p) => p.t >= fiveMinAgo);
-    const baselinePts = metricsHistory.filter((p) => p.t >= twentyFiveAgo && p.t < fiveMinAgo);
+    const recentPts   = metricsHistory.filter((p) => p.t >= recentStart);
+    const baselinePts = metricsHistory.filter((p) => p.t >= baselineStart && p.t < recentStart);
 
     if (recentPts.length < 2 || baselinePts.length < 2) {
       rapidShiftDeg    = 0;
@@ -463,14 +507,16 @@ function createAnalyzer() {
       if (last_corrected_twd === null) {
         unwrappedTWD = current;
       } else {
-        const diff = normalize(current - last_corrected_twd);
-        unwrappedTWD += diff;
-        if (Math.abs(diff) > 0.001) trend = diff > 0 ? 1 : -1;
-        else trend = 0;
+        unwrappedTWD += normalize(current - last_corrected_twd);
       }
       last_corrected_twd = current;
 
       detectShifts(timestamp, unwrappedTWD);
+      // Trend = direction of the current confirmed swing. The zigzag detector
+      // only flips direction after a reversal ≥ shiftThreshold, so this shows
+      // which way the wind is actually going instead of flickering with every
+      // sub-degree wiggle between consecutive 10-s samples.
+      trend = swingDir;
       updatePrediction(timestamp);
 
       const offsetRef = corrected[0];
