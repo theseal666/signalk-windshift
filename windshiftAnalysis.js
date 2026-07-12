@@ -52,6 +52,15 @@ function createAnalyzer() {
   var meanDrift1h    = 0;   // net circular drift over last hour, degrees
   var regime         = "unknown"; // "oscillating" | "drifting" | "mixed" | "unknown"
 
+  // Oscillation tactics state — the numbers an oscillating-shift strategy
+  // actually runs on: the mean wind (reference line), how far the wind is
+  // currently displaced from it, how big a full swing is, and which tack
+  // that displacement lifts (veer = TWD right of mean = starboard lifted).
+  var oscillationMean = null; // rad, wrapped [0, 2π) — de-oscillated mean TWD
+  var oscillationOffsetDeg = 0; // current TWD minus mean, degrees (+ = veered)
+  var oscillationAmplitudeDeg = 0; // half of the average peak-to-trough swing
+  var liftedTack = 0; // 1 = starboard lifted, -1 = port lifted, 0 = neutral/unknown
+
   // Rapid gradient shift detector: compares last 5-min mean to prior 5–25-min mean
   var gradientDetected = false; // true when a sudden persistent shift is active
   var rapidShiftDeg    = 0;    // magnitude and sign of the detected shift (degrees)
@@ -231,6 +240,12 @@ function createAnalyzer() {
     gradientRate   = s1 != null ? s1 : 0;
     gradientRate3h = s3 != null ? s3 : 0;
 
+    // The last point of the de-oscillated series IS the current mean wind —
+    // the reference line an oscillating-shift strategy is sailed against.
+    oscillationMean = s1series.length
+      ? normalize2pi(s1series[s1series.length - 1].y * Math.PI / 180)
+      : null;
+
     // Net drift over the last hour: difference of the de-oscillated series
     // endpoints. Each endpoint is a full-cycle (or 5-min) mean, so neither
     // sample noise nor oscillation phase can masquerade as drift.
@@ -249,6 +264,47 @@ function createAnalyzer() {
     else if (isOscillating)          regime = "oscillating";
     else if (isDrifting)             regime = "drifting";
     else                             regime = "unknown";
+  }
+
+  // Offset from the mean wind, swing amplitude, and which tack is lifted.
+  // Veer (TWD right of mean) lifts starboard: on starboard tack the wind
+  // rotating clockwise moves away from the bow, letting the boat head up;
+  // the mirror holds for port. Neutral inside a ±2° deadband.
+  const LIFT_DEADBAND_DEG = 2;
+
+  function computeOscillationMetrics(currentTwdRad) {
+    if (oscillationMean == null) {
+      oscillationOffsetDeg = 0;
+      oscillationAmplitudeDeg = 0;
+      liftedTack = 0;
+      return;
+    }
+    oscillationOffsetDeg =
+      normalize(currentTwdRad - oscillationMean) * 180 / Math.PI;
+
+    // Amplitude: half the average swing between consecutive extremes.
+    // Peaks/troughs store unwrapped values, so plain differences are safe.
+    const extremes = peaks
+      .map((p) => ({ t: p.time, v: p.value }))
+      .concat(troughs.map((p) => ({ t: p.time, v: p.value })))
+      .sort((a, b) => a.t - b.t);
+    if (extremes.length >= 2) {
+      let sum = 0;
+      for (let i = 1; i < extremes.length; i++) {
+        sum += Math.abs(extremes[i].v - extremes[i - 1].v);
+      }
+      oscillationAmplitudeDeg =
+        (sum / (extremes.length - 1)) / 2 * 180 / Math.PI;
+    } else {
+      oscillationAmplitudeDeg = 0;
+    }
+
+    const oscillating = certainty > 0.5 && cyclePeriod > 0;
+    if (!oscillating || Math.abs(oscillationOffsetDeg) < LIFT_DEADBAND_DEG) {
+      liftedTack = 0;
+    } else {
+      liftedTack = oscillationOffsetDeg > 0 ? 1 : -1;
+    }
   }
 
   // Rapid gradient shift: compare circular mean of last 5 min ("recent") against
@@ -422,6 +478,10 @@ function createAnalyzer() {
       gradientDetected = false;
       rapidShiftDeg = 0;
       speedCorrelated = false;
+      oscillationMean = null;
+      oscillationOffsetDeg = 0;
+      oscillationAmplitudeDeg = 0;
+      liftedTack = 0;
       speedHistory = [];
       currentTack = null;
       lastHeading = null;
@@ -530,6 +590,7 @@ function createAnalyzer() {
       );
 
       computeGradientMetrics(timestamp);
+      computeOscillationMetrics(current);
       detectRapidShift(timestamp);
       computeSpeedCorrelation(timestamp);
 
@@ -552,6 +613,10 @@ function createAnalyzer() {
         gradientDetected,  // boolean
         rapidShiftDeg,     // degrees (+ veering, − backing)
         speedCorrelated,   // boolean
+        oscillationMean,        // rad [0, 2π), or null
+        oscillationOffsetDeg,   // degrees, + = veered side of mean
+        oscillationAmplitudeDeg, // degrees (half of average full swing)
+        liftedTack,             // 1 = starboard, -1 = port, 0 = neutral
       };
 
       if (update) {

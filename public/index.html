@@ -6,7 +6,7 @@
     <title>Windshift Dashboard</title>
     <!-- Version query strings force browsers to refetch matching assets after
          every release instead of mixing cached JS with fresh HTML -->
-    <link rel="stylesheet" href="style.css?v=0.4.0">
+    <link rel="stylesheet" href="style.css?v=0.4.1">
     <link rel="stylesheet" href="https://unpkg.com/uplot/dist/uPlot.min.css">
 </head>
 <body>
@@ -30,6 +30,10 @@
             </div>
             <div class="metric" id="trend">
                 <label>Trend</label>
+                <span class="value">--</span>
+            </div>
+            <div class="metric" id="lifted">
+                <label>Lifted Tack</label>
                 <span class="value">--</span>
             </div>
             <div class="metric" id="cycle-period">
@@ -86,6 +90,6 @@
         </main>
     </div>
     <script src="https://unpkg.com/uplot/dist/uPlot.iife.min.js"></script>
-    <script src="app.js?v=0.4.0"></script>
+    <script src="app.js?v=0.4.1"></script>
 </body>
 </html>

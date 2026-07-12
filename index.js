@@ -200,6 +200,42 @@ module.exports = function (app) {
       },
     },
     {
+      path: prefix + "oscillation.meanTWD",
+      value: {
+        units: "rad",
+        description: "De-oscillated mean TWD — the reference line for oscillating-shift tactics",
+        displayName: "Oscillation mean TWD",
+        shortName: "Mean TWD",
+      },
+    },
+    {
+      path: prefix + "oscillation.offset",
+      value: {
+        units: "rad",
+        description: "Current TWD minus the oscillation mean (positive = veered side)",
+        displayName: "Oscillation offset",
+        shortName: "Osc offset",
+      },
+    },
+    {
+      path: prefix + "oscillation.amplitude",
+      value: {
+        units: "rad",
+        description: "Oscillation amplitude: half of the average peak-to-trough swing",
+        displayName: "Oscillation amplitude",
+        shortName: "Osc amp",
+      },
+    },
+    {
+      path: prefix + "oscillation.liftedTack",
+      value: {
+        units: "",
+        description: "Tack lifted by the current offset from mean (1 = starboard, -1 = port, 0 = neutral)",
+        displayName: "Lifted tack",
+        shortName: "Lifted",
+      },
+    },
+    {
       path: prefix + "gradientShift.detected",
       value: {
         units: "",
@@ -282,6 +318,10 @@ module.exports = function (app) {
               metrics.regime === "oscillating" ? 1 :
               metrics.regime === "drifting"    ? 2 :
               metrics.regime === "mixed"       ? 3 : 0 },
+            { path: prefix + "oscillation.meanTWD",   value: metrics.oscillationMean },
+            { path: prefix + "oscillation.offset",    value: metrics.oscillationOffsetDeg * Math.PI / 180 },
+            { path: prefix + "oscillation.amplitude", value: metrics.oscillationAmplitudeDeg * Math.PI / 180 },
+            { path: prefix + "oscillation.liftedTack", value: metrics.liftedTack },
             { path: prefix + "gradientShift.detected",      value: metrics.gradientDetected ? 1 : 0 },
             { path: prefix + "gradientShift.degrees",       value: metrics.rapidShiftDeg * Math.PI / 180 },
             { path: prefix + "gradientShift.speedCorrelated", value: metrics.speedCorrelated ? 1 : 0 },

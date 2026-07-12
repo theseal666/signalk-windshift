@@ -271,6 +271,12 @@ function handleValue(path, value, timestamp) {
         // SK path is 0-3 integer → map to string
         const names = ["unknown", "oscillating", "drifting", "mixed"];
         showRegime(names[value] || "unknown", null);
+    } else if (metric === "oscillation.liftedTack") {
+        lastLiftedTack = value;
+        showLifted(lastLiftedTack, lastOscOffsetDeg);
+    } else if (metric === "oscillation.offset") {
+        lastOscOffsetDeg = value * 180 / Math.PI;
+        showLifted(lastLiftedTack, lastOscOffsetDeg);
     } else if (metric === "gradientShift.detected") {
         showGradientAlert(value === 1, lastRapidShiftDeg, lastSpeedCorrelated);
     } else if (metric === "gradientShift.degrees") {
@@ -296,6 +302,28 @@ function showTrend(value) {
     } else {
         trendEl.innerText = "Steady";
         trendEl.style.color = "#fff";
+    }
+}
+
+// State for combining the two oscillation SK paths that arrive separately
+let lastLiftedTack = 0;
+let lastOscOffsetDeg = 0;
+
+// Starboard lifted = green (starboard light), port lifted = red (port light).
+function showLifted(tack, offsetDeg) {
+    const el = document.querySelector("#lifted .value");
+    if (!el) return;
+    const off = offsetDeg != null && !isNaN(offsetDeg)
+        ? ` ${offsetDeg > 0 ? "+" : ""}${offsetDeg.toFixed(0)}°` : "";
+    if (tack === 1) {
+        el.innerText = "Starboard" + off;
+        el.style.color = "#4caf50";
+    } else if (tack === -1) {
+        el.innerText = "Port" + off;
+        el.style.color = "#f44336";
+    } else {
+        el.innerText = "--" + off;
+        el.style.color = "#fff";
     }
 }
 
@@ -554,6 +582,9 @@ function loadLatest(src) {
             showGradientRate(m.gradientRate);
             showRegime(m.regime, m.stationConsensus);
             showGradientAlert(m.gradientDetected, m.rapidShiftDeg, m.speedCorrelated);
+            lastLiftedTack = m.liftedTack || 0;
+            lastOscOffsetDeg = m.oscillationOffsetDeg;
+            showLifted(lastLiftedTack, lastOscOffsetDeg);
         });
 }
 
