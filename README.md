@@ -10,6 +10,63 @@ tracking and a live dashboard.
 
 ---
 
+## Quick Start
+
+**Prerequisites:**
+- A running SignalK server, on whatever Node.js version your server already requires.
+- Optional, only for multi-station tracking: [`signalk-viva`](https://github.com/theseal666/signalk-viva-plugin) installed and running first, so there are stations for this plugin to discover.
+
+**1. Install and restart the server**
+
+```bash
+cd ~/.signalk
+npm install "https://github.com/theseal666/signalk-windshift.git"
+sudo systemctl restart signalk
+```
+
+Installing and restarting the server is not the same as turning the plugin
+on — SignalK plugins ship disabled by default.
+
+**2. Enable it and set the basics**
+
+In the SignalK admin UI, go to **Server → Plugin Config** and find
+**Windshift** in the list. Toggle it on, then set at minimum:
+
+- **TWD Source Path** — which SignalK path to analyze (default
+  `environment.wind.directionTrue`). If you don't have live wind instruments
+  yet and just want to see the plugin working, point this at a shore
+  station's path instead — see "Testing against a shore station" below.
+
+**3. (Optional) Turn on multi-station tracking**
+
+If `signalk-viva` is installed and publishing station data, set
+**Track ViVa Stations** to however many of the nearest shore stations you
+want analyzed in parallel with the boat (0 = off).
+
+**4. Save**
+
+Click **Submit**. This restarts only the plugin (not the whole SignalK
+server) with your new configuration.
+
+**5. Open the dashboard**
+
+`http://<your-signalk-ip>/@jwallinder/windshift` — or via the admin UI's
+**Webapps** menu, listed as "Windshift".
+
+**Troubleshooting:**
+- **Dashboard shows all zeros or dashes** — normal for the first ~30 minutes
+  after a restart, or in very light/steady air: the plugin needs a few
+  completed ≥4° swings before cycle metrics have anything to report.
+- **Windshift doesn't appear in the Webapps menu** — check that it's toggled
+  on in Plugin Config and that the server restarted cleanly; the SignalK
+  debug log will show plugin startup messages if you filter for
+  "windshift".
+- **No stations show up in the Source dropdown** — confirm `signalk-viva`
+  is installed, running, and actually publishing station data, and that
+  **Track ViVa Stations** is set above 0.
+
+---
+
 ## What we are trying to achieve
 
 Wind is rarely steady. On most race days the True Wind Direction oscillates
@@ -182,21 +239,34 @@ reported gust value — for ViVa shore stations this maps to *Byvind*; for the
 boat it requires a gust sensor mapped to `environment.wind.gust` in the
 instrument configuration.
 
-## Current state (July 2026)
+## Current state (September 2026)
 
-**Branches:**
-| Branch | Version | Status |
-| :--- | :--- | :--- |
-| `main` | v0.0.6 | Stable, single-source original |
-| `feature/multi-station` | v0.3.5 | Multi-station, soak test complete, merge pending |
-| `feature/gradient-detection` | v0.4.0 | Gradient detection — **currently running on Pi** |
+**Branches:** `feature/multi-station` and `feature/gradient-detection` have
+been merged into `main` — `main` is now the single active branch and carries
+every feature described in this README (multi-station tracking, gradient
+detection, the full dashboard). The two feature branches have been deleted
+on GitHub; there is nothing on them that isn't already in `main`.
+
+Note: the multi-station → main merge went ahead of the original soak-test
+gate described in `PLAN.md` (waiting for a real frontal passage to validate
+the rapid-shift/speed-correlation triggers) — that validation is still
+outstanding, see "Known limitations" below.
+
+**Recent fix (September 2026):** the dashboard could grow taller than one
+screen when the gradient-shift warning banner appeared, because the flex
+layout wasn't allowed to shrink the chart area to make room. Fixed by giving
+the chart container `min-height: 0` and pinning the header/controls-bar/alert
+banner heights — the warning banner no longer pushes the app past a full
+screen. No functional change, `public/style.css` only.
 
 **Live soak test:** the plugin runs 24/7 on a Raspberry Pi (KarukeraPi),
 analyzing the Vinga lighthouse TWD as the "boat" source plus the five nearest
 ViVa stations on the Bohuslän coast. Cycle detection locks in within ~1 h on
 oscillating days; certainty correctly stays low in messy morning gradient.
-The gradient detector is accumulating real-world data — waiting for a frontal
-passage to validate the rapid-shift and speed-correlation triggers.
+The gradient detector is accumulating real-world data — **still waiting for
+a frontal passage** to validate the rapid-shift and speed-correlation
+triggers in live conditions (validated so far only against synthetic test
+scenarios in `test-verify.js`).
 
 **Persistence:** 24 h metrics history per source, saved every 5 min and on
 shutdown, restored on startup. The waterfall chart survives server restarts.
@@ -210,6 +280,9 @@ data within ~30 min.
   time (stations do; the boat does when instruments are live).
 - Gradient thresholds (10° rapid-shift, 20% speed spike) are hard-coded
   — they will become config options once real-world data shows tuning needs.
+- The gradient/rapid-shift detector has not yet been validated against a
+  real frontal passage on the water (see "Live soak test" above) — treat its
+  output with some caution until that happens.
 - Not yet published to npm (install from GitHub, see below).
 
 **Roadmap:** see [PLAN.md](PLAN.md) for the full milestone history and
@@ -311,24 +384,13 @@ Served by the plugin (require a logged-in session):
 
 ## Installation
 
-Latest (gradient detection, currently on the Pi):
+`main` now carries every feature (multi-station tracking + gradient
+detection) and is what's currently running on the Pi:
 
 ```bash
 cd ~/.signalk
-npm install "https://github.com/theseal666/signalk-windshift.git#feature/gradient-detection"
-sudo systemctl restart signalk
-```
-
-Multi-station only (no gradient detection):
-
-```bash
-npm install "https://github.com/theseal666/signalk-windshift.git#feature/multi-station"
-```
-
-Stable single-source (original, no multi-station):
-
-```bash
 npm install "https://github.com/theseal666/signalk-windshift.git"
+sudo systemctl restart signalk
 ```
 
 ## Accessing the Dashboard

@@ -1,7 +1,7 @@
 {
   "name": "@jwallinder/windshift",
   "version": "0.4.1",
-  "description": "SignalK plugin to analyze wind shifts and detect cyclic oscillations in True Wind Direction (TWD)",
+  "description": "SignalK plugin and live dashboard for wind-shift analysis: cyclic oscillation detection with tack-timing prediction, gradient/persistent-shift detection, and multi-station (ViVa shore station) tracking",
   "main": "index.js",
   "scripts": {
     "test": "node test-verify.js"

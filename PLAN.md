@@ -9,9 +9,18 @@ and what comes next. Updated with each significant change.
 
 | Branch | Version | Status |
 |---|---|---|
-| `main` | v0.0.6 | Stable, single-source, original upstream + minor fixes |
-| `feature/multi-station` | v0.3.5 | Multi-station, soak test on Pi, **merge pending** |
-| `feature/gradient-detection` | v0.4.0 | Gradient shift detection, **currently deployed on Pi** |
+| `main` | v0.4.1 | **All features merged — single active branch, currently deployed on Pi** |
+
+`feature/multi-station` and `feature/gradient-detection` were fast-forward
+merged into `main` in September 2026 and then deleted on GitHub — both were
+fully contained in `main` (verified via GitHub compare: 0 commits unique to
+either branch) before deletion, so no history was lost.
+
+**Caveat:** this merge went ahead of the soak-test gate originally set for it
+below (R2 called for capturing a real frontal passage with `gradientDetected`
+firing correctly before merging). That validation had not happened yet at
+merge time — see "Currently running on Pi" for the current status of that
+gap.
 
 ---
 
@@ -107,11 +116,30 @@ delta (spread), basic trend. No cycle detection, no prediction.
   settles. Smoke test: pure 8° oscillation → no trigger; sudden 20° shift
   + 25% speed spike → rapidShiftDeg = 19.4°, speedCorrelated = true. ✓
 
+### M10 — Branch consolidation + dashboard overflow fix (v0.4.1, September 2026)
+- **Layout fix**: the dashboard could grow taller than one screen when the
+  `#gradient-alert` warning banner appeared — the flex layout wasn't letting
+  the chart area shrink to absorb the extra height. Fixed with
+  `min-height: 0` on `main`/`#chart-container`/`#overlay-container`,
+  `flex-shrink: 0` on the fixed-height bars, and a `100dvh` fallback for
+  mobile browser chrome. `public/style.css` only, no behavioral change.
+- **Branch consolidation**: `feature/multi-station` and
+  `feature/gradient-detection` fast-forward merged into `main`; both old
+  branches deleted from GitHub after confirming (via GitHub compare) that
+  `main` is a strict superset of each. `main` is now the only branch and the
+  one the Pi's `~/.signalk` install should eventually track (currently still
+  pinned to the deleted `feature/gradient-detection` ref name, which still
+  resolves because git keeps the commit reachable through `main`, but should
+  be repointed to `#main` — or no ref at all — before it causes confusion).
+- **npm publish**: still not done (see R2 below) — this milestone covers only
+  the merge-to-main half of R2, not the publish half.
+
 ---
 
 ## Currently running on Pi (KarukeraPi, 192.168.0.120)
 
-Branch: `feature/gradient-detection` (v0.4.0)
+Branch: `main` (v0.4.1) — carries every feature (multi-station + gradient
+detection + the M10 layout fix).
 
 Config (soak test mode, boat at mooring):
 - TWD source: `environment.observations.viva.vinga.wind.directionTrue`
@@ -122,7 +150,10 @@ Observations so far:
 - Cycle detection locks in within ~1 h on oscillating days.
 - Certainty stays low in messy morning gradient — correct behaviour.
 - Persistence works: Pi restarts don't blank the chart.
-- Speed correlation not yet exercised by a real frontal passage.
+- **Speed correlation / rapid-shift detection still not exercised by a real
+  frontal passage** — validated so far only against the synthetic scenarios
+  in `test-verify.js`. This is the one open item carried over from before
+  the M10 merge; worth continuing to watch for as the soak test continues.
 
 **⚠ After each deploy:** SignalK restart requires `sudo systemctl restart signalk`
 via a TTY session (SSH without `-t` cannot provide the sudo password prompt).
@@ -142,11 +173,11 @@ Each station already runs its own gradient detector. The missing piece:
 - Emit `environment.wind.windshift.gradientShift.approachingETA` (seconds).
 - Dashboard: "Gradient shift approaching from Vinga — ETA ~8 min".
 
-**R2 — Merge feature/multi-station → main + npm publish**
-- Run soak test until at least one frontal passage is captured with
-  `gradientDetected` firing correctly.
-- Merge feature/multi-station to main (v1.0.0).
-- Merge gradient-detection on top.
+**R2 — npm publish** *(merge-to-main half completed in M10; this item now
+covers only the publish itself)*
+- Continue the soak test until at least one frontal passage is captured with
+  `gradientDetected` firing correctly on real data (still outstanding —
+  see "Currently running on Pi" above).
 - `npm publish` (requires 2FA OTP).
 
 **R3 — Notification / alarm output**
