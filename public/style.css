@@ -1,15 +1,26 @@
-body {
+html, body {
+    height: 100%;
     margin: 0;
     padding: 0;
+    overflow: hidden;
+}
+
+body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     background-color: #121212;
     color: #e0e0e0;
+}
+
+*, *::before, *::after {
+    box-sizing: border-box;
 }
 
 #dashboard {
     display: flex;
     flex-direction: column;
     height: 100vh;
+    height: 100dvh; /* accounts for mobile browser chrome so the page never exceeds one screen */
+    overflow: hidden;
 }
 
 header {
@@ -20,6 +31,7 @@ header {
     background-color: #1e1e1e;
     box-shadow: 0 2px 5px rgba(0,0,0,0.5);
     z-index: 10;
+    flex-shrink: 0;
 }
 
 .metric {
@@ -74,10 +86,14 @@ header {
 
 main {
     flex: 1;
+    min-height: 0; /* without this, flex items refuse to shrink below their content's natural
+                       height, so once the gradient-alert banner appeared the whole dashboard
+                       grew taller than the viewport instead of the chart area shrinking to fit */
     padding: 10px;
     display: flex;
     flex-direction: column;
     position: relative;
+    overflow: hidden;
 }
 
 #reset-zoom {
@@ -105,6 +121,7 @@ main {
     flex: 1;
     width: 100%;
     height: 100%;
+    min-height: 0;
 }
 
 .controls-bar {
@@ -115,6 +132,7 @@ main {
     border-top: 1px solid #2a2a2a;
     align-items: center;
     flex-wrap: wrap;
+    flex-shrink: 0;
 }
 
 .control-group {
@@ -167,6 +185,7 @@ main {
     text-align: center;
     letter-spacing: 0.04em;
     animation: gradient-pulse 1.4s ease-in-out infinite;
+    flex-shrink: 0;
 }
 
 @keyframes gradient-pulse {
