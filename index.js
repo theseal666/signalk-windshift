@@ -11,6 +11,7 @@ module.exports = function (app) {
   plugin.description = "Plugin to analyze the windshift";
 
   var unsubscribes = [];
+  var configWarning = null;
   var boatAnalyzer = null;
   var stations = new Map(); // slug -> { analyzer, distance, active }
   var stationSettings = null;
@@ -272,7 +273,10 @@ module.exports = function (app) {
     for (const [slug, s] of stations) {
       if (s.active) parts.push(`${slug}: ${pointCounts[slug] || 0}`);
     }
-    app.setPluginStatus(`Analysis points — ${parts.join(" | ")}`);
+    app.setPluginStatus(
+      (configWarning ? "CONFIG ERROR — " + configWarning + " || " : "") +
+      `Analysis points — ${parts.join(" | ")}`
+    );
   }
 
   function emitMetrics(sourceId, prefix, metrics) {
@@ -363,7 +367,9 @@ module.exports = function (app) {
     });
   }
 
+
   plugin.start = function (options, restartPlugin) {
+    configWarning = null;
     app.debug("Plugin Windshift started");
     app.debug("options:" + JSON.stringify(options));
 
@@ -374,11 +380,50 @@ module.exports = function (app) {
       ((options.shift_threshold_deg || DEFAULT_SHIFT_THRESHOLD_DEG) * Math.PI) / 180;
     const twdSourcePath =
       options.twd_source_path || "environment.wind.directionTrue";
+
+    // This plugin analyses a wind DIRECTION — a compass bearing the wind blows
+    // from. Point it at a wind ANGLE (relative to the boat) and every tack
+    // flips the sign, so it reads your own steering as wind movement.
+    //
+    // That is not hypothetical. Karukera sailed 2026-10-03 with
+    // twd_source_path set to environment.wind.angleTrueWater. Replaying the
+    // logged streams through this same module, the misconfiguration reported a
+    // 90.9 deg wind swing where the real one was 21.6 deg, an oscillation
+    // period of 94 s against a true 217 s, a gradient rate peaking at 585
+    // deg/hr, and it never once classified the breeze as oscillating in 874
+    // emissions. Worst of all it called the opposite tack lifted — port 103
+    // times corrected, against starboard 35 times as configured.
+    //
+    // Nothing in the output looked broken. Hence this check.
+    const anglePath = /\.(angleApparent|angleTrueWater|angleTrueGround|angleTrue)$/.test(twdSourcePath);
+    if (anglePath) {
+      const msg =
+        `twd_source_path is "${twdSourcePath}", which is a wind ANGLE relative to the boat, ` +
+        `not a wind DIRECTION. Every tack will look like a large wind shift and the lifted-tack ` +
+        `call will be inverted. Use environment.wind.directionTrue (the default), or a shore ` +
+        `station's .wind.directionTrue.`;
+      app.error(msg);
+      app.setPluginError ? app.setPluginError(msg) : app.setPluginStatus("CONFIG ERROR — " + msg);
+      configWarning = msg;
+    }
+
+    // auto_calibrate needs to know which tack the boat is on, and that comes
+    // from setAWA/setHeading — which are only subscribed when maneuvers are
+    // tracked. Set both and the calibrator silently never runs:
+    // calibrationOffset stayed 0.000 for the whole of the 2026-10-03 sail.
+    if ((options.auto_calibrate || false) && (options.ignore_maneuvers || false)) {
+      const msg =
+        "auto_calibrate is on but ignore_maneuvers is also on, so heading and AWA are never " +
+        "subscribed and the port/starboard calibration can never run. Turn ignore_maneuvers off " +
+        "to calibrate, or turn auto_calibrate off to stop expecting it to.";
+      app.error(msg);
+      configWarning = configWarning ? configWarning + " " + msg : msg;
+    }
     boatTwdSourcePath = twdSourcePath;
     const ignoreManeuvers = options.ignore_maneuvers || false;
     maxStations = options.track_viva_stations || 0;
     pointCounts = {};
-    app.setPluginStatus("Waiting for wind data");
+    if (!configWarning) app.setPluginStatus("Waiting for wind data");
 
     boatAnalyzer = createAnalyzer();
     boatAnalyzer.logger(app.debug);
