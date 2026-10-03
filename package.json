@@ -4,7 +4,7 @@
   "description": "SignalK plugin to analyze wind shifts and detect cyclic oscillations in True Wind Direction (TWD)",
   "main": "index.js",
   "scripts": {
-    "test": "node test-verify.js"
+    "test": "mocha test/*.js"
   },
   "keywords": [
     "signalk-node-server-plugin",
@@ -18,5 +18,9 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/jwallinder/signalk-windshift"
+  },
+  "devDependencies": {
+    "mocha": "^10.0.0",
+    "chai": "^4.3.0"
   }
 }
